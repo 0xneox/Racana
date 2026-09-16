@@ -1,0 +1,55 @@
+{
+  "key": "philosophy",
+  "displayName": "Philosophy",
+  "personality": "Spacious Contemplative",
+  "trimDefaults": {
+    "trimSize": "6x9",
+    "marginTopMm": 22,
+    "marginBottomMm": 22,
+    "marginInsideMm": 25,
+    "marginOutsideMm": 20
+  },
+  "body": {
+    "fontFamily": "Libre Baskerville",
+    "fontSizePt": 11,
+    "leadingEm": 1.5,
+    "firstLineIndentMm": 6,
+    "paragraphSpacingMm": 4
+  },
+  "heading": {
+    "fontFamily": "Libre Baskerville",
+    "h1SizePt": 19,
+    "h2SizePt": 14.5,
+    "h3SizePt": 12,
+    "spacingBeforeMm": 18,
+    "spacingAfterMm": 10
+  },
+  "margins": {
+    "insideMm": 25,
+    "outsideMm": 20,
+    "topMm": 22,
+    "bottomMm": 22
+  },
+  "layout": {
+    "chapterOpenRecto": true,
+    "runningHeaders": false,
+    "runningHeaderFormat": "chapter-title",
+    "pageNumbersPosition": "bottom_center",
+    "orphanWidowTarget": 3,
+    "bleedMm": 3.175,
+    "bleedEnabled": false
+  },
+  "quote": {
+    "indentLeftMm": 15,
+    "indentRightMm": 15,
+    "fontSizeAdjustEm": 0.9,
+    "italic": true
+  },
+  "fontsEmbed": [
+    {
+      "family": "Libre Baskerville",
+      "file": "LibreBaskerville-Regular.ttf",
+      "weights": [400, 401, 700]
+    }
+  ]
+}

@@ -1,0 +1,235 @@
+// Prisma Schema for "Manuscript In, Book Out"
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum JobStatus {
+  uploaded
+  analyzing
+  structure_ready
+  queued
+  typesetting
+  qa
+  fixing
+  ready
+  failed
+}
+
+enum BookType {
+  novel
+  philosophy
+  academic
+  business
+  memoir
+  spiritual
+  childrens
+  other
+}
+
+enum TemplateKey {
+  classic
+  modern
+  philosophy
+  academic
+  literary
+}
+
+enum TrimSize {
+  trim_5x8       @map("5x8")
+  trim_5_5x8_5   @map("5.5x8.5")
+  trim_6x9       @map("6x9")
+  trim_8_5x11    @map("8.5x11")
+}
+
+enum SettingsMode {
+  format_only
+  format_proofread_stub
+  format_editorial_stub
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  name          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  jobs          BookJob[]
+  payments      Payment[]
+
+  @@map("users")
+}
+
+model BookJob {
+  id              String             @id @default(uuid())
+  userId          String?
+  status          JobStatus          @default(uploaded)
+  progress        Int                @default(0) // 0 - 100
+  currentStep     String             @default("uploaded")
+  bookType        BookType           @default(novel)
+  trimSize        TrimSize           @default(trim_6x9)
+  errorMessage    String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  user            User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  manuscriptAsset ManuscriptAsset?
+  structureJson   BookStructureJSON?
+  templateChoice  TemplateChoice?
+  settings        BookSettings?
+  artifacts       RenderArtifact[]
+  qaReports       QAReport[]
+  payments        Payment[]
+  emailLogs       EmailLog[]
+
+  @@map("book_jobs")
+}
+
+model ManuscriptAsset {
+  id                 String    @id @default(uuid())
+  jobId              String    @unique
+  fileName           String
+  fileSizeBytes      Int
+  mimeType           String
+  s3Key              String
+  s3Bucket           String
+  pageCountEstimate  Int       @default(1)
+  wordCountEstimate  Int       @default(0)
+  sha256Checksum     String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  job                BookJob   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("manuscript_assets")
+}
+
+model BookStructureJSON {
+  id              String    @id @default(uuid())
+  jobId           String    @unique
+  structureData   Json      // { frontmatter: [...], chapters: [...], backmatter: [...] }
+  detectedTitle   String?
+  detectedAuthor  String?
+  chapterCount    Int       @default(0)
+  detectedBookType BookType?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  job             BookJob   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("book_structure_json")
+}
+
+model TemplateChoice {
+  id          String      @id @default(uuid())
+  jobId       String      @unique
+  templateKey TemplateKey @default(classic)
+  name        String
+  personality String      // e.g. "Timeless Literary"
+  description String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  job         BookJob     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("template_choices")
+}
+
+model BookSettings {
+  id                String    @id @default(uuid())
+  jobId             String    @unique
+  // Simple Mode settings
+  trimSize          TrimSize  @default(trim_6x9)
+  
+  // Advanced Mode settings (sensible defaults, 90% never touch)
+  fontBody          String    @default("Garamond")
+  fontHeading       String    @default("Cinzel")
+  fontSizePt        Float     @default(11.0)
+  lineHeight        Float     @default(1.35)
+  marginTopMm       Float     @default(19.05) // 0.75 in
+  marginBottomMm    Float     @default(19.05) // 0.75 in
+  marginInsideMm    Float     @default(22.22) // 0.875 in (gutter)
+  marginOutsideMm   Float     @default(15.87) // 0.625 in
+  pageNumbers       String    @default("bottom_center") // bottom_center, outer_header
+  runningHeaders    Boolean   @default(true)
+  chapterOpenRecto  Boolean   @default(true)
+  bleed             Boolean   @default(false)
+  bleedSizeMm       Float     @default(3.175) // 0.125 in
+  mode              SettingsMode @default(format_only)
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  job               BookJob   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("book_settings")
+}
+
+model RenderArtifact {
+  id            String    @id @default(uuid())
+  jobId         String
+  artifactType  String    // interior_pdf, preview_thumb, qa_summary
+  s3Key         String
+  s3Bucket      String
+  fileSizeBytes Int
+  downloadUrl   String?
+  mimeType      String    @default("application/pdf")
+  createdAt     DateTime  @default(now())
+
+  job           BookJob   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("render_artifacts")
+}
+
+model QAReport {
+  id          String    @id @default(uuid())
+  jobId       String
+  score       Int       @default(100) // 0-100
+  passed      Boolean   @default(true)
+  pageCount   Int       @default(1)
+  issues      Json      @default("[]") // [{ code, level, description, page }]
+  createdAt   DateTime  @default(now())
+
+  job         BookJob   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("qa_reports")
+}
+
+model Payment {
+  id                     String    @id @default(uuid())
+  userId                 String?
+  jobId                  String?
+  stripeSessionId        String?   @unique
+  stripePaymentIntentId  String?   @unique
+  amountCents            Int       @default(2900) // $29.00
+  currency               String    @default("usd")
+  status                 String    @default("pending") // pending, paid, failed, refunded
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  user                   User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  job                    BookJob?  @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@map("payments")
+}
+
+model EmailLog {
+  id               String    @id @default(uuid())
+  jobId            String?
+  recipientEmail   String
+  subject          String
+  status           String    @default("sent") // queued, sent, delivered, failed
+  resendMessageId  String?
+  sentAt           DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+
+  job              BookJob?  @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@map("email_logs")
+}

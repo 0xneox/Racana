@@ -1,0 +1,69 @@
+﻿# ========== Racana · racana.studio — Production Git Ignore ==========
+
+# --- Node / JS ---
+node_modules/
+.pnp
+.pnp.js
+coverage/
+
+# --- Next.js / Vercel Build output ---
+.next/
+out/
+build/
+dist/
+.turbo/
+.vercel/
+
+# --- Racana Internal Runtime Caches ---
+.storage/
+storage/
+.typst-render-tmp/
+.cache/
+.uploads-tmp/
+test-results/
+playwright-report/
+
+# --- Secrets & Env ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+cert/
+secrets/
+
+# --- DB ---
+*.db
+*.sqlite
+prisma/migrations/**/*.sql.tmp
+prisma/*.db-journal
+
+# --- Logs ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+next-env.d.ts.bak
+
+# --- Editor / OS Junk ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# --- Typst / PDF local runs (we store in S3, never git) ---
+*.typ
+*.pdf
+*.aux
+*.fdb_latexmk
+*.fls

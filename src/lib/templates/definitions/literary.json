@@ -1,0 +1,55 @@
+{
+  "key": "literary",
+  "displayName": "Literary",
+  "personality": "Elegant Bookstore",
+  "trimDefaults": {
+    "trimSize": "5.5x8.5",
+    "marginTopMm": 20,
+    "marginBottomMm": 20,
+    "marginInsideMm": 22,
+    "marginOutsideMm": 17
+  },
+  "body": {
+    "fontFamily": "Libre Baskerville",
+    "fontSizePt": 11,
+    "leadingEm": 1.45,
+    "firstLineIndentMm": 3,
+    "paragraphSpacingMm": 5
+  },
+  "heading": {
+    "fontFamily": "Libre Baskerville",
+    "h1SizePt": 21,
+    "h2SizePt": 15.5,
+    "h3SizePt": 12.5,
+    "spacingBeforeMm": 16,
+    "spacingAfterMm": 8
+  },
+  "margins": {
+    "insideMm": 22,
+    "outsideMm": 17,
+    "topMm": 20,
+    "bottomMm": 20
+  },
+  "layout": {
+    "chapterOpenRecto": true,
+    "runningHeaders": true,
+    "runningHeaderFormat": "author-name|chapter-title",
+    "pageNumbersPosition": "bottom_center",
+    "orphanWidowTarget": 2,
+    "bleedMm": 3.175,
+    "bleedEnabled": false
+  },
+  "quote": {
+    "indentLeftMm": 11,
+    "indentRightMm": 11,
+    "fontSizeAdjustEm": 0.93,
+    "italic": true
+  },
+  "fontsEmbed": [
+    {
+      "family": "Libre Baskerville",
+      "file": "LibreBaskerville-Regular.ttf",
+      "weights": [400, 401, 700]
+    }
+  ]
+}

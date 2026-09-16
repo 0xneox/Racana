@@ -1,0 +1,60 @@
+{
+  "key": "modern",
+  "displayName": "Modern",
+  "personality": "Clean Minimal",
+  "trimDefaults": {
+    "trimSize": "5.5x8.5",
+    "marginTopMm": 17,
+    "marginBottomMm": 17,
+    "marginInsideMm": 19,
+    "marginOutsideMm": 13
+  },
+  "body": {
+    "fontFamily": "Source Serif Pro",
+    "fontSizePt": 11,
+    "leadingEm": 1.4,
+    "firstLineIndentMm": 4,
+    "paragraphSpacingMm": 3
+  },
+  "heading": {
+    "fontFamily": "Source Sans Pro",
+    "h1SizePt": 22,
+    "h2SizePt": 16,
+    "h3SizePt": 13,
+    "spacingBeforeMm": 14,
+    "spacingAfterMm": 7
+  },
+  "margins": {
+    "insideMm": 19,
+    "outsideMm": 13,
+    "topMm": 17,
+    "bottomMm": 17
+  },
+  "layout": {
+    "chapterOpenRecto": false,
+    "runningHeaders": true,
+    "runningHeaderFormat": "chapter-title",
+    "pageNumbersPosition": "outer_header",
+    "orphanWidowTarget": 2,
+    "bleedMm": 3.175,
+    "bleedEnabled": false
+  },
+  "quote": {
+    "indentLeftMm": 12,
+    "indentRightMm": 12,
+    "fontSizeAdjustEm": 0.92,
+    "italic": false
+  },
+  "fontsEmbed": [
+    {
+      "family": "Source Serif Pro",
+      "file": "SourceSerifPro-Regular.ttf",
+      "weights": [400, 700]
+    },
+    {
+      "family": "Source Sans Pro",
+      "file": "SourceSansPro-Regular.ttf",
+      "weights": [400, 700]
+    }
+  ]
+}

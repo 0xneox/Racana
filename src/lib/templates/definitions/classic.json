@@ -1,0 +1,55 @@
+{
+  "key": "classic",
+  "displayName": "Classic",
+  "personality": "Timeless Literary",
+  "trimDefaults": {
+    "trimSize": "6x9",
+    "marginTopMm": 19.05,
+    "marginBottomMm": 19.05,
+    "marginInsideMm": 22.22,
+    "marginOutsideMm": 15.87
+  },
+  "body": {
+    "fontFamily": "EB Garamond",
+    "fontSizePt": 11,
+    "leadingEm": 1.35,
+    "firstLineIndentMm": 5.0,
+    "paragraphSpacingMm": 0
+  },
+  "heading": {
+    "fontFamily": "EB Garamond",
+    "h1SizePt": 20,
+    "h2SizePt": 15,
+    "h3SizePt": 12.5,
+    "spacingBeforeMm": 12,
+    "spacingAfterMm": 6
+  },
+  "margins": {
+    "insideMm": 22.22,
+    "outsideMm": 15.87,
+    "topMm": 19.05,
+    "bottomMm": 19.05
+  },
+  "layout": {
+    "chapterOpenRecto": true,
+    "runningHeaders": true,
+    "runningHeaderFormat": "book-title|chapter-title",
+    "pageNumbersPosition": "bottom_center",
+    "orphanWidowTarget": 2,
+    "bleedMm": 3.175,
+    "bleedEnabled": false
+  },
+  "quote": {
+    "indentLeftMm": 10,
+    "indentRightMm": 10,
+    "fontSizeAdjustEm": 0.95,
+    "italic": true
+  },
+  "fontsEmbed": [
+    {
+      "family": "EB Garamond",
+      "file": "EBGaramond-Regular.ttf",
+      "weights": [400, 401, 700]
+    }
+  ]
+}

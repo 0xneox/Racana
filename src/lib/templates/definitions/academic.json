@@ -1,0 +1,60 @@
+{
+  "key": "academic",
+  "displayName": "Academic",
+  "personality": "Structured Scholarly",
+  "trimDefaults": {
+    "trimSize": "6x9",
+    "marginTopMm": 20,
+    "marginBottomMm": 20,
+    "marginInsideMm": 23,
+    "marginOutsideMm": 18
+  },
+  "body": {
+    "fontFamily": "Source Serif Pro",
+    "fontSizePt": 10.5,
+    "leadingEm": 1.3,
+    "firstLineIndentMm": 4.5,
+    "paragraphSpacingMm": 1.5
+  },
+  "heading": {
+    "fontFamily": "Source Sans Pro",
+    "h1SizePt": 18,
+    "h2SizePt": 14,
+    "h3SizePt": 12,
+    "spacingBeforeMm": 14,
+    "spacingAfterMm": 5
+  },
+  "margins": {
+    "insideMm": 23,
+    "outsideMm": 18,
+    "topMm": 20,
+    "bottomMm": 20
+  },
+  "layout": {
+    "chapterOpenRecto": true,
+    "runningHeaders": true,
+    "runningHeaderFormat": "book-title|chapter-title",
+    "pageNumbersPosition": "outer_header",
+    "orphanWidowTarget": 4,
+    "bleedMm": 3.175,
+    "bleedEnabled": false
+  },
+  "quote": {
+    "indentLeftMm": 12,
+    "indentRightMm": 12,
+    "fontSizeAdjustEm": 0.9,
+    "italic": true
+  },
+  "fontsEmbed": [
+    {
+      "family": "Source Serif Pro",
+      "file": "SourceSerifPro-Regular.ttf",
+      "weights": [400, 401, 700]
+    },
+    {
+      "family": "Source Sans Pro",
+      "file": "SourceSansPro-Regular.ttf",
+      "weights": [400, 700]
+    }
+  ]
+}
