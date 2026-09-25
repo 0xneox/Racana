@@ -1,7 +1,16 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import prisma from "./db";
-import { decodeSession, SESSION_COOKIE_NAME } from "./auth";
+import {
+  createGuestToken,
+  decodeGuestToken,
+  decodeSession,
+  GUEST_COOKIE_NAME,
+  GUEST_TTL_SEC,
+  SESSION_COOKIE_NAME,
+  type SessionUser,
+} from "./auth";
 
 export const GENERIC_INTERNAL_ERROR = "Internal server error. Please try again later.";
 
@@ -29,13 +38,55 @@ export async function requireSession() {
   return { user, error: null };
 }
 
+export interface Identity {
+  user: SessionUser | null;
+  guestId: string | null;
+  /** Set when a fresh guest token was minted — caller should attach it to the response. */
+  newGuestToken: string | null;
+}
+
+// Accepts a signed-in user OR an anonymous guest. When the request carries no
+// identity at all a guest token is minted so the caller can attach it to the
+// response — upload-first flow requires no sign-in.
+export async function requireIdentity(): Promise<Identity> {
+  const store = cookies();
+
+  const sessionCookie = store.get(SESSION_COOKIE_NAME);
+  if (sessionCookie?.value) {
+    const user = await decodeSession(sessionCookie.value);
+    if (user) return { user, guestId: null, newGuestToken: null };
+  }
+
+  const guestCookie = store.get(GUEST_COOKIE_NAME);
+  const guestId = guestCookie?.value ? await decodeGuestToken(guestCookie.value) : null;
+  if (guestId) return { user: null, guestId, newGuestToken: null };
+
+  const newGuestId = crypto.randomUUID();
+  const newGuestToken = await createGuestToken(newGuestId);
+  return { user: null, guestId: newGuestId, newGuestToken };
+}
+
+// Attaches a freshly-minted guest token to a JSON response.
+export function withGuestCookie<T>(response: NextResponse<T>, identity: Identity): NextResponse<T> {
+  if (identity.newGuestToken) {
+    response.cookies.set(GUEST_COOKIE_NAME, identity.newGuestToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: GUEST_TTL_SEC,
+    });
+  }
+  return response;
+}
+
 export async function requireJobOwner(
   jobId: string,
-  userId: string
+  identity: { userId?: string | null; guestId?: string | null }
 ) {
   const job = await prisma.bookJob.findUnique({
     where: { id: jobId },
-    select: { id: true, userId: true },
+    select: { id: true, userId: true, guestId: true },
   });
   if (!job) {
     return { job: null as any, error: NextResponse.json(
@@ -43,7 +94,9 @@ export async function requireJobOwner(
       { status: 404 }
     )};
   }
-  if (!job.userId || job.userId !== userId) {
+  const isUserOwner = !!identity.userId && job.userId === identity.userId;
+  const isGuestOwner = !!identity.guestId && job.guestId === identity.guestId;
+  if (!isUserOwner && !isGuestOwner) {
     return { job: null as any, error: NextResponse.json(
       { error: "You are not authorized to access this job." },
       { status: 403 }

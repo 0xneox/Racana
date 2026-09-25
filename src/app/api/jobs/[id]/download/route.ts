@@ -1,21 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { getFromStorage } from "@/lib/storage/s3";
-import { GENERIC_INTERNAL_ERROR, logServerError, requireJobOwner, requireSession } from "@/lib/auth-utils";
-
-function addWatermarkOverlayToPdf(originalPdf: Buffer, watermarkText: string): Buffer {
-  try {
-    const { PDFDocument, StandardFonts, rgb, PageSizes } = require("pdf-lib");
-    // Stub approach using pdf-lib: overlay diagonally per page. For now just return original.
-    // NOTE: We don't use actual pdf-lib here to avoid breaking unknown env. Use a simple header byte append approach.
-    // Fallback: prepend a trailer-based "WATERMARKED FREE PREVIEW" metadata tag if possible.
-    // To keep test behaviour stable (tests expect PDF header magic bytes), fall back to returning original
-    // buffer untouched; the UI is gated with paymentRequired flag separately.
-    return originalPdf;
-  } catch {
-    return originalPdf;
-  }
-}
+import { GENERIC_INTERNAL_ERROR, logServerError, requireIdentity, requireJobOwner } from "@/lib/auth-utils";
+import { addWatermarkOverlayToPdf } from "@/lib/watermark";
 
 function isWatermarkFree(
   payments: { id: string; status: string; amountCents: number; currency: string; createdAt?: Date }[]
@@ -28,10 +15,12 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { user, error } = await requireSession();
-    if (error) return error;
+    const identity = await requireIdentity();
 
-    const ownerRes = await requireJobOwner(params.id, user!.id);
+    const ownerRes = await requireJobOwner(params.id, {
+      userId: identity.user?.id,
+      guestId: identity.guestId,
+    });
     if (ownerRes.error) return ownerRes.error;
 
     const job = await prisma.bookJob.findUnique({
@@ -77,7 +66,7 @@ export async function GET(
 
     const fullPaid = isWatermarkFree(job.payments as any[]);
     if (!fullPaid) {
-      pdfBuffer = addWatermarkOverlayToPdf(pdfBuffer, "PREVIEW - Payment required to remove watermark");
+      pdfBuffer = await addWatermarkOverlayToPdf(pdfBuffer, "RACANA · FREE PREVIEW");
     }
 
     const baseName = (job.manuscriptAsset?.fileName || "manuscript")

@@ -1,4 +1,4 @@
-# Manuscript In, Book Out (V1)
+# Racana — Manuscript In, Book Out (V1)
 
 > **“Upload your manuscript. Choose a style. We make the book.”**  
 > A zero-technical-knowledge web application that turns an uploaded DOCX or PDF manuscript into a bookstore-grade, print-ready interior PDF.
@@ -19,7 +19,7 @@
 - **Object Storage**: S3-compatible storage (MinIO in Docker Compose) with resilient local disk fallback
 - **Queue & Background Jobs**: BullMQ + Redis for asynchronous 8-step pipeline progression
 - **Typesetting Engine**: **Typst** (Locked & Committed). Ultra-fast compilation, native binding/recto-verso support, and reproducible PDF/X output
-- **Authentication**: Email Magic Link stub + Google OAuth stub with session cookie management
+- **Authentication**: Email magic links (single-use, 15-min tokens via Resend) + Google OAuth (enabled when `GOOGLE_CLIENT_ID`/`SECRET` are set) with HMAC-signed session cookies
 - **Containerization**: Multi-container Docker Compose setup (`postgres`, `redis`, `minio`, `minio-create-buckets`, `app`)
 
 ---
@@ -142,16 +142,29 @@ Services started:
 
 ---
 
-## 🔌 What Part 2 Will Plug Into
+## 🔌 Production Wiring
 
-Part 1 sets the solid foundations, schemas, queue, storage, APIs, and UI. Part 2 will replace the stubs with production implementations:
+The following are live implementations (no stubs) — they activate as soon as real credentials are configured:
 
-1. **Typst Engine Core (`src/lib/typesetting/typst.ts`)**:
+1. **Typst Engine Core (`src/lib/renderer/typst/`)**:
    - Compiles parsed manuscript structure (`BookStructureJSON`) into `.typ` markup.
-   - Invokes the `typst compile` CLI to produce the physical PDF interior.
-2. **AI Manuscript Analyzer (`src/lib/ai/analyzer.ts`)**:
-   - Calls `OPENAI_COMPATIBLE_BASE_URL` to extract chapters, scene breaks, frontmatter, and headings from DOCX/PDF text.
-3. **Stripe Checkout Webhook (`src/app/api/webhooks/stripe/route.ts`)**:
-   - Receives `checkout.session.completed` events and marks `Payment.status = "paid"`.
-4. **Resend Email Integration (`src/lib/email/resend.ts`)**:
-   - Sends the PDF attachment or pre-signed S3 download link via Resend API.
+   - Invokes the bundled `bin/typst` binary to produce the physical PDF interior with embedded open-license fonts.
+2. **Manuscript Analyzer (`src/lib/ai/analyzer.ts`)**:
+   - Parses DOCX/PDF locally (mammoth + pdf-parse); optionally enhances title/author/type detection via `OPENAI_COMPATIBLE_BASE_URL` when `OPENAI_API_KEY` is set.
+3. **Stripe Checkout (`src/app/api/checkout/route.ts` + `src/app/api/webhooks/stripe/route.ts`)**:
+   - `POST /api/checkout` creates a Checkout Session ($29 per interior) for a ready job.
+   - The webhook verifies the signature and marks `Payment.status = "paid"`, unlocking the watermark-free download.
+   - Requires `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (use `stripe listen --forward-to localhost:3002/api/webhooks/stripe` in dev).
+4. **Resend Email (`src/lib/email/resend.ts`)**:
+   - Delivers magic-link sign-in emails and "your book is ready" notifications once `RESEND_API_KEY` is set.
+   - In dev without a key, sign-in returns a `devLink` so the flow stays testable.
+5. **Auth (`src/app/api/auth/[...nextauth]/route.ts`)**:
+   - Magic links are single-use, 15-minute, SHA-256-hashed tokens (`VerificationToken` table).
+   - Google OAuth activates automatically when `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are configured (register redirect URI `${NEXT_PUBLIC_APP_URL}/api/auth/google/callback`).
+
+## 🚢 Deploy Checklist
+
+- Run `npx prisma db push` against the production Postgres (creates all tables incl. `verification_tokens`).
+- Set real `DATABASE_URL`, `REDIS_URL`, `NEXTAUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`.
+- In production the in-memory DB fallback is **disabled** — Postgres must be reachable.
+- Recommended: run via `docker compose up` (includes Postgres, Redis, MinIO).

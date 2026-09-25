@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { BookType, SettingsMode, TemplateKey, TrimSize } from "@prisma/client";
-import { GENERIC_INTERNAL_ERROR, logServerError, requireJobOwner, requireSession } from "@/lib/auth-utils";
+import { GENERIC_INTERNAL_ERROR, logServerError, requireIdentity, requireJobOwner } from "@/lib/auth-utils";
+import { EMBEDDED_FONT_FAMILIES } from "@/lib/templates/engine";
 
 const TRIM_SIZES = new Set<string>(Object.values(TrimSize));
 const TEMPLATE_KEYS = new Set<string>(Object.values(TemplateKey));
@@ -10,8 +11,8 @@ const PAGE_NUMBER_CHOICES = new Set(["bottom_center", "outer_header"]);
 const MODE_CHOICES = new Set<string>(Object.values(SettingsMode));
 
 const ALLOWED_BOOK_SETTINGS_FIELDS: Record<string, (v: any) => any> = {
-  fontBody: (v) => (typeof v === "string" && v.length <= 120 ? v : undefined),
-  fontHeading: (v) => (typeof v === "string" && v.length <= 120 ? v : undefined),
+  fontBody: (v) => (typeof v === "string" && EMBEDDED_FONT_FAMILIES.has(v) ? v : undefined),
+  fontHeading: (v) => (typeof v === "string" && EMBEDDED_FONT_FAMILIES.has(v) ? v : undefined),
   fontSizePt: (v) => {
     const n = Number(v);
     return Number.isFinite(n) && n >= 6 && n <= 36 ? n : undefined;
@@ -63,10 +64,12 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { user, error } = await requireSession();
-    if (error) return error;
+    const identity = await requireIdentity();
 
-    const ownerRes = await requireJobOwner(params.id, user!.id);
+    const ownerRes = await requireJobOwner(params.id, {
+      userId: identity.user?.id,
+      guestId: identity.guestId,
+    });
     if (ownerRes.error) return ownerRes.error;
 
     const job = await prisma.bookJob.findUnique({
@@ -104,10 +107,12 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { user, error } = await requireSession();
-    if (error) return error;
+    const identity = await requireIdentity();
 
-    const ownerRes = await requireJobOwner(params.id, user!.id);
+    const ownerRes = await requireJobOwner(params.id, {
+      userId: identity.user?.id,
+      guestId: identity.guestId,
+    });
     if (ownerRes.error) return ownerRes.error;
 
     const body = await request.json();

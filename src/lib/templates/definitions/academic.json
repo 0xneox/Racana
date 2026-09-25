@@ -10,14 +10,14 @@
     "marginOutsideMm": 18
   },
   "body": {
-    "fontFamily": "Source Serif Pro",
+    "fontFamily": "Source Serif 4",
     "fontSizePt": 10.5,
     "leadingEm": 1.3,
     "firstLineIndentMm": 4.5,
     "paragraphSpacingMm": 1.5
   },
   "heading": {
-    "fontFamily": "Source Sans Pro",
+    "fontFamily": "Source Sans 3",
     "h1SizePt": 18,
     "h2SizePt": 14,
     "h3SizePt": 12,
@@ -47,13 +47,13 @@
   },
   "fontsEmbed": [
     {
-      "family": "Source Serif Pro",
-      "file": "SourceSerifPro-Regular.ttf",
+      "family": "Source Serif 4",
+      "file": "SourceSerif4-Regular.ttf",
       "weights": [400, 401, 700]
     },
     {
-      "family": "Source Sans Pro",
-      "file": "SourceSansPro-Regular.ttf",
+      "family": "Source Sans 3",
+      "file": "SourceSans3-Regular.ttf",
       "weights": [400, 700]
     }
   ]

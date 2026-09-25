@@ -87,7 +87,18 @@ services:
       S3_REGION: us-east-1
       S3_FORCE_PATH_STYLE: "true"
       NEXTAUTH_URL: http://localhost:3000
-      NEXTAUTH_SECRET: development-secret-key-at-least-32-chars-long
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-development-secret-key-at-least-32-chars-long}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      RACANA_ROOT: /app
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-Racana <books@racana.studio>}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_ID_SINGLE_BOOK: ${STRIPE_PRICE_ID_SINGLE_BOOK:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      OPENAI_COMPATIBLE_BASE_URL: ${OPENAI_COMPATIBLE_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       TYPESETTING_ENGINE: typst
     depends_on:
       postgres:

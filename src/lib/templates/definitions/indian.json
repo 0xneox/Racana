@@ -1,0 +1,55 @@
+{
+  "key": "indian",
+  "displayName": "Indian Classical",
+  "personality": "Traditional Indian — Hindi & Indian language ready",
+  "trimDefaults": {
+    "trimSize": "6x9",
+    "marginTopMm": 19.05,
+    "marginBottomMm": 19.05,
+    "marginInsideMm": 22.22,
+    "marginOutsideMm": 15.87
+  },
+  "body": {
+    "fontFamily": "Noto Serif Devanagari",
+    "fontSizePt": 11.5,
+    "leadingEm": 1.5,
+    "firstLineIndentMm": 4.5,
+    "paragraphSpacingMm": 0
+  },
+  "heading": {
+    "fontFamily": "Noto Serif Devanagari",
+    "h1SizePt": 22,
+    "h2SizePt": 16,
+    "h3SizePt": 13.5,
+    "spacingBeforeMm": 14,
+    "spacingAfterMm": 8
+  },
+  "margins": {
+    "insideMm": 22.22,
+    "outsideMm": 15.87,
+    "topMm": 19.05,
+    "bottomMm": 19.05
+  },
+  "layout": {
+    "chapterOpenRecto": true,
+    "runningHeaders": true,
+    "runningHeaderFormat": "author-name|chapter-title",
+    "pageNumbersPosition": "bottom_center",
+    "orphanWidowTarget": 2,
+    "bleedMm": 3.175,
+    "bleedEnabled": false
+  },
+  "quote": {
+    "indentLeftMm": 11,
+    "indentRightMm": 11,
+    "fontSizeAdjustEm": 0.93,
+    "italic": true
+  },
+  "fontsEmbed": [
+    {
+      "family": "Noto Serif Devanagari",
+      "file": "NotoSerifDevanagari-Regular.ttf",
+      "weights": [400, 700]
+    }
+  ]
+}

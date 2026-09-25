@@ -4,43 +4,84 @@
 
 @layer base {
   :root {
-    --background: 40 33% 98%;
-    --foreground: 20 14% 10%;
+    --radius: 0.375rem;
+    --background: 0.982 0.008 82;
+    --foreground: 0.17 0.012 52;
+    --card: 0.993 0.006 82;
+    --card-foreground: 0.205 0.019 52;
+    --popover: 0.993 0.006 82;
+    --popover-foreground: 0.205 0.019 52;
+    --primary: 0.347 0.095 28;
+    --primary-foreground: 0.982 0.01 83;
+    --secondary: 0.91 0.025 76;
+    --secondary-foreground: 0.25 0.025 45;
+    --muted: 0.933 0.014 78;
+    --muted-foreground: 0.48 0.023 56;
+    --accent: 0.825 0.058 74;
+    --accent-foreground: 0.25 0.025 45;
+    --destructive: 0.52 0.18 28;
+    --destructive-foreground: 0.982 0.01 83;
+    --border: 0.825 0.025 70;
+    --input: 0.825 0.025 70;
+    --ring: 0.42 0.083 29;
+    --paper: 0.992 0.009 86;
+    --paper-deep: 0.932 0.027 79;
+    --ink-soft: 0.39 0.022 53;
+    --forest: 0.303 0.04 154;
+    --forest-foreground: 0.974 0.012 82;
+    --rule: 0.72 0.04 67;
+    --shadow-page: 0 30px 80px oklch(0.22 0.025 48 / 0.13), 0 2px 10px oklch(0.22 0.025 48 / 0.07);
+    --shadow-lift: 0 18px 45px oklch(0.22 0.025 48 / 0.11);
+  }
 
-    --card: 0 0% 100%;
-    --card-foreground: 20 14% 10%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 20 14% 10%;
-
-    --primary: 20 14% 12%;
-    --primary-foreground: 40 33% 98%;
-
-    --secondary: 40 20% 93%;
-    --secondary-foreground: 20 14% 12%;
-
-    --muted: 40 15% 91%;
-    --muted-foreground: 25 5% 45%;
-
-    --accent: 18 64% 39%;
-    --accent-foreground: 40 33% 98%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-
-    --border: 40 18% 88%;
-    --input: 40 18% 88%;
-    --ring: 20 14% 20%;
-
-    --radius: 0.5rem;
+  *, ::before, ::after {
+    border-color: oklch(var(--border));
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    margin: 0;
+    background-color: oklch(var(--background));
+    color: oklch(var(--foreground));
+    font-family: var(--font-jakarta), "Plus Jakarta Sans", system-ui, sans-serif;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: oklch(var(--accent));
+    color: oklch(var(--accent-foreground));
+  }
+  button, a {
+    -webkit-tap-highlight-color: transparent;
+  }
+  a {
+    text-underline-offset: 0.28em;
   }
 }
 
-body {
-  background-color: #FDFBF7;
-  color: #1C1917;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  -webkit-font-smoothing: antialiased;
+@layer utilities {
+  .page-grain {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.025'/%3E%3C/svg%3E");
+  }
+}
+
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes page-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .reveal { animation: reveal-up 700ms cubic-bezier(.22,.8,.3,1) both; }
+  .reveal-delay { animation-delay: 160ms; }
+  .page-breathe { animation: page-breathe 7s ease-in-out infinite; }
+}
+
+@media (max-width: 767px) {
+  .mobile-safe { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
 }
 
 /* Custom scrollbars for bookstore feel */

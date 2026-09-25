@@ -1,44 +1,60 @@
-import { BookMarked, ShieldCheck, Printer } from "lucide-react";
+const columns: [string, [string, string][]][] = [
+  [
+    "Product",
+    [
+      ["My Books", "/books"],
+      ["Templates", "/templates"],
+      ["Pricing", "/#pricing"],
+      ["How it works", "/#how"],
+    ],
+  ],
+  [
+    "Company",
+    [
+      ["About", "/"],
+      ["Contact", "mailto:books@racana.studio"],
+    ],
+  ],
+  [
+    "Help",
+    [
+      ["FAQ", "/#how"],
+      ["Privacy", "/privacy"],
+      ["Terms", "/terms"],
+      ["Status", "/api/health"],
+    ],
+  ],
+];
 
 export function Footer() {
   return (
-    <footer className="border-t border-[#E8E2D5] bg-[#F8F5EE] py-12 mt-20 text-[#57534E]">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10 pb-10 border-b border-[#E8E2D5]/70 text-sm">
-          <div className="flex items-start gap-3">
-            <BookMarked className="w-5 h-5 text-[#A34825] shrink-0 mt-0.5" />
-            <div>
-              <h4 className="font-serif font-bold text-[#1C1917] mb-1">Bookstore Standards</h4>
-              <p className="text-xs text-[#78716C] leading-relaxed">
-                Typeset to professional publishing standards with true recto chapter openings, running heads, and balanced folios.
-              </p>
-            </div>
+    <footer className="bg-foreground px-5 py-16 text-background md:px-10 lg:px-16">
+      <div className="mx-auto max-w-[1312px]">
+        <div className="grid gap-12 border-b border-background/20 pb-14 md:grid-cols-[2fr_1fr_1fr_1fr]">
+          <div>
+            <p className="font-serif text-3xl tracking-[0.14em]">RACANA</p>
+            <p className="mt-4 text-sm text-background/60">
+              The 2-Minute Book Interior Publisher.
+            </p>
           </div>
-          <div className="flex items-start gap-3">
-            <Printer className="w-5 h-5 text-[#A34825] shrink-0 mt-0.5" />
-            <div>
-              <h4 className="font-serif font-bold text-[#1C1917] mb-1">Guaranteed Print-Ready</h4>
-              <p className="text-xs text-[#78716C] leading-relaxed">
-                Automated gutter compensation, precise trim bounds (5x8, 5.5x8.5, 6x9, 8.5x11), and PDF/X-compliant interiors.
+          {columns.map(([heading, links]) => (
+            <div key={heading}>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-background/50">
+                {heading}
               </p>
+              <div className="mt-4 flex flex-col gap-3 text-sm">
+                {links.map(([label, href]) => (
+                  <a key={label} href={href}>
+                    {label}
+                  </a>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <ShieldCheck className="w-5 h-5 text-[#A34825] shrink-0 mt-0.5" />
-            <div>
-              <h4 className="font-serif font-bold text-[#1C1917] mb-1">Zero Technical Knowledge</h4>
-              <p className="text-xs text-[#78716C] leading-relaxed">
-                No typesetting software, no margin calculators, no widow/orphan fixing. Upload your manuscript, get your finished book.
-              </p>
-            </div>
-          </div>
+          ))}
         </div>
-
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#78716C]">
-          <p>© {new Date().getFullYear()} Manuscript In, Book Out. All rights reserved.</p>
-          <p className="italic font-serif">
-            “Upload your manuscript. Choose a style. We make the book.”
-          </p>
+        <div className="flex flex-col justify-between gap-3 pt-6 text-xs text-background/50 sm:flex-row">
+          <span>© 2026 Racana Studio.</span>
+          <span>Your manuscript in. Your finished book out.</span>
         </div>
       </div>
     </footer>

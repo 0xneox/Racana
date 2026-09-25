@@ -20,6 +20,9 @@ async function runHttpE2eTest() {
         PORT: String(PORT),
         HOSTNAME: "127.0.0.1",
         NODE_ENV: "production",
+        NEXTAUTH_URL: BASE_URL,
+        ALLOW_IN_MEMORY_DB: "true",
+        ALLOW_DEV_MAGIC_LINK: "true",
       },
       stdio: ["ignore", "pipe", "pipe"],
     }
@@ -51,6 +54,26 @@ async function runHttpE2eTest() {
     }
     console.log("✅ Next.js server is live at " + BASE_URL);
 
+    // 1b. Authenticate via magic-link dev flow (ALLOW_DEV_MAGIC_LINK returns devLink)
+    console.log("Authenticating via magic link...");
+    const signinRes = await fetch(`${BASE_URL}/api/auth/signin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "jane@example.com", name: "Jane Austen" }),
+    });
+    const signinData = await signinRes.json();
+    if (!signinData.devLink) {
+      throw new Error("No devLink returned — is ALLOW_DEV_MAGIC_LINK=true set?");
+    }
+    const verifyRes = await fetch(signinData.devLink, { redirect: "manual" });
+    const setCookie = verifyRes.headers.get("set-cookie") || "";
+    const sessionCookie = setCookie.split(";")[0];
+    if (!sessionCookie.includes("mibo_session=")) {
+      throw new Error("Magic-link verify did not set a session cookie");
+    }
+    const authHeaders = { Cookie: sessionCookie };
+    console.log("  ✓ Magic-link sign-in verified, session cookie captured.");
+
     // 2. Test Marketing Landing Page (/)
     console.log("Testing GET / (Landing Page)...");
     const landingRes = await fetch(`${BASE_URL}/`);
@@ -59,10 +82,10 @@ async function runHttpE2eTest() {
     if (!landingHtml.includes("Your manuscript in")) {
       throw new Error("Landing page missing headline 'Your manuscript in'");
     }
-    if (!landingHtml.includes("Upload. Choose a style. Get a print-ready book.")) {
+    if (!landingHtml.includes("finished book out")) {
       throw new Error("Landing page missing sub-headline");
     }
-    if (!landingHtml.includes("Upload your manuscript")) {
+    if (!landingHtml.includes("Start with your manuscript")) {
       throw new Error("Landing page missing CTA button");
     }
     if (!landingHtml.includes("29")) {
@@ -72,7 +95,7 @@ async function runHttpE2eTest() {
 
     // 3. Test /upload
     console.log("Testing GET /upload...");
-    const uploadPageRes = await fetch(`${BASE_URL}/upload`);
+    const uploadPageRes = await fetch(`${BASE_URL}/upload`, { headers: authHeaders });
     if (uploadPageRes.status !== 200) throw new Error("/upload returned " + uploadPageRes.status);
     const uploadHtml = await uploadPageRes.text();
     if (!uploadHtml.includes("Upload Your Manuscript")) {
@@ -85,46 +108,43 @@ async function runHttpE2eTest() {
 
     // 4. Test /templates
     console.log("Testing GET /templates...");
-    const templatesPageRes = await fetch(`${BASE_URL}/templates`);
+    const templatesPageRes = await fetch(`${BASE_URL}/templates`, { headers: authHeaders });
     if (templatesPageRes.status !== 200) throw new Error("/templates returned " + templatesPageRes.status);
     console.log("  ✓ /templates page renders (HTTP 200 OK).");
 
     // 5. Test /settings
     console.log("Testing GET /settings...");
-    const settingsPageRes = await fetch(`${BASE_URL}/settings`);
+    const settingsPageRes = await fetch(`${BASE_URL}/settings`, { headers: authHeaders });
     if (settingsPageRes.status !== 200) throw new Error("/settings returned " + settingsPageRes.status);
     console.log("  ✓ /settings page renders (HTTP 200 OK).");
 
     // 6. Test /create
     console.log("Testing GET /create...");
-    const createPageRes = await fetch(`${BASE_URL}/create`);
+    const createPageRes = await fetch(`${BASE_URL}/create`, { headers: authHeaders });
     if (createPageRes.status !== 200) throw new Error("/create returned " + createPageRes.status);
     console.log("  ✓ /create page renders (HTTP 200 OK).");
 
     // 7. Test /ready
     console.log("Testing GET /ready...");
-    const readyPageRes = await fetch(`${BASE_URL}/ready`);
+    const readyPageRes = await fetch(`${BASE_URL}/ready`, { headers: authHeaders });
     if (readyPageRes.status !== 200) throw new Error("/ready returned " + readyPageRes.status);
     console.log("  ✓ /ready page renders (HTTP 200 OK).");
 
     // 8. Test POST /api/upload with multipart form data
     console.log("Testing POST /api/upload...");
-    const fakeDocxBuffer = Buffer.alloc(4096, 0x20);
-    fakeDocxBuffer[0] = 0x50; // P
-    fakeDocxBuffer[1] = 0x4b; // K
-    fakeDocxBuffer[2] = 0x03;
-    fakeDocxBuffer[3] = 0x04;
-    fakeDocxBuffer.write("Sample Manuscript Chapter Content", 100, "utf-8");
+    const fixturePath = path.join(process.cwd(), "tests/fixtures/philosophy_meditations.docx");
+    const fakeDocxBuffer = require("fs").readFileSync(fixturePath);
 
     const formData = new FormData();
     const blob = new Blob([fakeDocxBuffer], {
       type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     });
-    formData.append("file", blob, "Test_Manuscript.docx");
+    formData.append("file", blob, "philosophy_meditations.docx");
     formData.append("bookType", "philosophy");
 
     const uploadApiRes = await fetch(`${BASE_URL}/api/upload`, {
       method: "POST",
+      headers: authHeaders,
       body: formData,
     });
 
@@ -140,7 +160,7 @@ async function runHttpE2eTest() {
 
     // 9. Test GET /api/jobs/[id]
     console.log(`Testing GET /api/jobs/${jobId}...`);
-    const jobRes = await fetch(`${BASE_URL}/api/jobs/${jobId}`);
+    const jobRes = await fetch(`${BASE_URL}/api/jobs/${jobId}`, { headers: authHeaders });
     if (jobRes.status !== 200) throw new Error(`GET job failed with ${jobRes.status}`);
     const jobData = await jobRes.json();
     if (jobData.job.id !== jobId) throw new Error("Job ID mismatch");
@@ -150,7 +170,7 @@ async function runHttpE2eTest() {
     console.log(`Testing PATCH /api/jobs/${jobId}...`);
     const patchRes = await fetch(`${BASE_URL}/api/jobs/${jobId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({
         templateKey: "literary",
         trimSize: "trim_5_5x8_5",
@@ -167,6 +187,7 @@ async function runHttpE2eTest() {
     console.log(`Testing POST /api/jobs/${jobId}/start...`);
     const startRes = await fetch(`${BASE_URL}/api/jobs/${jobId}/start`, {
       method: "POST",
+      headers: authHeaders,
     });
     if (startRes.status !== 200) throw new Error(`Start job failed with ${startRes.status}`);
     console.log("  ✓ Job pipeline started.");
@@ -174,9 +195,9 @@ async function runHttpE2eTest() {
     // 12. Poll job status until ready
     console.log("Polling job status until 'ready'...");
     let isReady = false;
-    for (let attempt = 0; attempt < 30; attempt++) {
-      await sleep(400);
-      const pollRes = await fetch(`${BASE_URL}/api/jobs/${jobId}`);
+    for (let attempt = 0; attempt < 120; attempt++) {
+      await sleep(500);
+      const pollRes = await fetch(`${BASE_URL}/api/jobs/${jobId}`, { headers: authHeaders });
       const pollData = await pollRes.json();
       if (pollData.job?.status === "ready" && pollData.job?.progress === 100) {
         isReady = true;
@@ -189,7 +210,7 @@ async function runHttpE2eTest() {
 
     // 13. Test GET /api/jobs/[id]/download
     console.log(`Testing GET /api/jobs/${jobId}/download...`);
-    const downloadRes = await fetch(`${BASE_URL}/api/jobs/${jobId}/download`);
+    const downloadRes = await fetch(`${BASE_URL}/api/jobs/${jobId}/download`, { headers: authHeaders });
     if (downloadRes.status !== 200) throw new Error(`Download failed with ${downloadRes.status}`);
     const contentType = downloadRes.headers.get("content-type");
     if (!contentType?.includes("application/pdf")) {
@@ -207,26 +228,23 @@ async function runHttpE2eTest() {
     console.log("Testing POST /api/email...");
     const emailRes = await fetch(`${BASE_URL}/api/email`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ jobId, email: "author@example.com" }),
     });
-    if (emailRes.status !== 200) throw new Error(`Email dispatch failed with ${emailRes.status}`);
-    const emailData = await emailRes.json();
-    if (!emailData.success) throw new Error("Email dispatch unconfirmed");
-    console.log("  ✓ Email delivery action logged successfully.");
+    if (emailRes.status === 200) {
+      console.log("  ✓ Email delivered via Resend.");
+    } else if (emailRes.status === 503) {
+      console.log("  ✓ Email honestly reports delivery unavailable (no RESEND_API_KEY).");
+    } else {
+      throw new Error(`Email endpoint returned unexpected ${emailRes.status}`);
+    }
 
-    // 15. Test Auth API
-    console.log("Testing Auth API (/api/auth/signin)...");
-    const authRes = await fetch(`${BASE_URL}/api/auth/signin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "jane@example.com", name: "Jane Austen" }),
-    });
-    if (authRes.status !== 200) throw new Error(`Auth signin failed with ${authRes.status}`);
-    const authData = await authRes.json();
-    if (authData.user?.email !== "jane@example.com") throw new Error("Auth user mismatch");
-    console.log("  ✓ Author auth sign-in and session cookie confirmed.");
-
+    // 15. Confirm session cookie still valid
+    console.log("Testing GET /api/auth/session...");
+    const sessRes = await fetch(`${BASE_URL}/api/auth/session`, { headers: authHeaders });
+    const sessData = await sessRes.json();
+    if (sessData.user?.email !== "jane@example.com") throw new Error("Session user mismatch");
+    console.log("  ✓ Session cookie valid, user email confirmed.");
     console.log("\n========================================================");
     console.log("🎉 ALL E2E HTTP ROUTES & APIS PASSED WITH FLYING COLORS!");
     console.log("========================================================\n");

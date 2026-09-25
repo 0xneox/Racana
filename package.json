@@ -10,6 +10,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "node --loader ts-node/esm prisma/seed.ts",
+    "worker": "node --loader ts-node/esm scripts/worker.ts",
     "test": "vitest run"
   },
   "dependencies": {

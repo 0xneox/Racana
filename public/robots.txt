@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /books
+Disallow: /create
+Disallow: /ready
+
+Sitemap: https://racana.studio/sitemap.xml

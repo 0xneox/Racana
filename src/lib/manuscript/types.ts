@@ -11,7 +11,12 @@ export type BlockType =
   | "image"
   | "caption"
   | "reference"
-  | "bibliography";
+  | "bibliography"
+  | "toc_entry"
+  | "practice_box"
+  | "epigraph"
+  | "copyright"
+  | "title_page";
 
 export interface TableCell {
   text: string;
@@ -30,6 +35,14 @@ export interface Block {
   alt?: string;
   src?: string;
   identifier?: string;
+  /** For toc_entry: the page number target. */
+  page?: number;
+  /** For practice_box: the subtitle/label under the "PRACTICE" eyebrow. */
+  label?: string;
+  /** For practice_box: the inner blocks (list items, paragraphs). */
+  blocks?: Block[];
+  /** For epigraph: the attribution line. */
+  attribution?: string;
 }
 
 export interface WarningItem {
@@ -79,6 +92,10 @@ export interface BookStructureV1 {
     | "other";
   chapterCount: number;
   estimatedPages: number;
+  /** Dominant writing system detected in the manuscript (e.g. "devanagari"). */
+  detectedScript?: string;
+  /** Human-readable label, e.g. "Hindi · Devanagari". */
+  scriptLabel?: string;
   warnings: WarningItem[];
   frontMatter: FrontMatterEntry[];
   chapters: ChapterEntry[];

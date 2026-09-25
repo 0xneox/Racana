@@ -67,3 +67,4 @@ $RECYCLE.BIN/
 *.aux
 *.fdb_latexmk
 *.fls
+.vercel

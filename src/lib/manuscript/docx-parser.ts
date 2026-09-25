@@ -1,6 +1,7 @@
 import * as mammothNs from "mammoth";
 const mammoth: typeof mammothNs =
   (mammothNs as unknown as { default?: typeof mammothNs }).default || mammothNs;
+import JSZip from "jszip";
 import type { Block, DocxParseResult, TableRow } from "./types";
 
 function trimText(s: string): string {
@@ -28,7 +29,82 @@ function isQuoteStyle(styleName: string | undefined): boolean {
   );
 }
 
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&amp;/g, "&");
+}
+
+// Lenient fallback when mammoth's strict XML parser rejects a file (e.g. malformed
+// attributes from non-Word generators). Reads word/document.xml directly and
+// walks paragraphs + heading styles by regex — no full XML parse required.
+async function parseDocxFallback(buffer: Buffer): Promise<DocxParseResult> {
+  const zip = await JSZip.loadAsync(buffer);
+  const docFile = zip.file("word/document.xml");
+  if (!docFile) throw new Error("word/document.xml not found in DOCX package");
+  const xml = await docFile.async("string");
+
+  const blocks: Block[] = [];
+  const rawParts: string[] = [];
+
+  const paraRegex = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g;
+  let m: RegExpExecArray | null;
+  while ((m = paraRegex.exec(xml)) !== null) {
+    const para = m[1];
+
+    const styleMatch = para.match(/<w:pStyle\s+w:val="([^"]+)"/);
+    const styleVal = (styleMatch?.[1] || "").toLowerCase();
+
+    const textParts: string[] = [];
+    const textRegex = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
+    let tm: RegExpExecArray | null;
+    while ((tm = textRegex.exec(para)) !== null) {
+      textParts.push(decodeXmlEntities(tm[1]));
+    }
+    const text = trimText(textParts.join(""));
+    if (!text) continue;
+
+    rawParts.push(text);
+
+    const headingLevel = isHeadingStyle(styleVal);
+    if (headingLevel) {
+      blocks.push({
+        type: headingLevel === 1 ? "heading_h1" : headingLevel === 2 ? "heading_h2" : "heading_h3",
+        text,
+        level: headingLevel,
+      });
+    } else if (styleVal.includes("quote")) {
+      blocks.push({ type: "quote", text });
+    } else {
+      blocks.push({ type: "paragraph", text });
+    }
+  }
+
+  if (blocks.length === 0) {
+    throw new Error("DOCX fallback extraction produced no readable text");
+  }
+
+  return { blocks, rawText: rawParts.join("\n\n") };
+}
+
 export async function parseDocx(buffer: Buffer): Promise<DocxParseResult> {
+  try {
+    return await parseDocxWithMammoth(buffer);
+  } catch (err) {
+    console.warn(
+      "[DocxParser] mammoth parse failed, trying lenient OOXML fallback:",
+      (err as Error)?.message
+    );
+    return parseDocxFallback(buffer);
+  }
+}
+
+async function parseDocxWithMammoth(buffer: Buffer): Promise<DocxParseResult> {
   const rawResult = await mammoth.extractRawText({ buffer });
   const htmlResult = await mammoth.convertToHtml(
     { buffer },

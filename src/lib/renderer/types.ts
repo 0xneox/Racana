@@ -8,6 +8,11 @@ export interface RendererOptions {
   templateName: string;
 }
 
+export interface EmbeddedImage {
+  fileName: string; // relative to the .typ file directory, e.g. "images/img-0.png"
+  buffer: Buffer;
+}
+
 export interface QAIssue {
   code: string;
   level: "info" | "warning" | "error";

@@ -3,7 +3,7 @@ import { PrismaClient, JobStatus, BookType, TemplateKey, TrimSize, SettingsMode 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("🌱 Seeding database for 'Manuscript In, Book Out'...");
+  console.log("🌱 Seeding database for Racana...");
 
   // 1. Clean existing records for idempotent runs
   await prisma.emailLog.deleteMany();
@@ -28,7 +28,7 @@ async function main() {
 
   const demoAuthorUser = await prisma.user.create({
     data: {
-      email: "demo@manuscriptinbookout.com",
+      email: "demo@racana.studio",
       name: "Demo Author",
     },
   });

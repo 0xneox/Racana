@@ -12,6 +12,8 @@ class InMemoryStore {
   _qaReports: Map<string, any> = new Map();
   _payments: Map<string, any> = new Map();
   _emailLogs: Map<string, any> = new Map();
+  _verificationTokens: Map<string, any> = new Map();
+  _analyticsEvents: Map<string, any> = new Map();
 
   private generateId() {
     return "id_" + Math.random().toString(36).substring(2, 11) + "_" + Date.now();
@@ -133,7 +135,77 @@ class InMemoryStore {
       this._bookJobs.set(where.id, updated);
       return updated;
     },
-    findMany: async () => Array.from(this._bookJobs.values()),
+    findMany: async (args?: any) => {
+      let rows = Array.from(this._bookJobs.values());
+      if (args?.where?.OR && Array.isArray(args.where.OR)) {
+        rows = rows.filter((r) =>
+          args.where.OR.some((cond: any) =>
+            Object.entries(cond).every(([k, v]) => (r as any)[k] === v)
+          )
+        );
+      } else if (args?.where?.userId) {
+        rows = rows.filter((r) => r.userId === args.where.userId);
+      } else if (args?.where?.guestId) {
+        rows = rows.filter((r) => r.guestId === args.where.guestId);
+      }
+      if (args?.orderBy?.createdAt === "desc") {
+        rows = rows.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
+      if (args?.take) rows = rows.slice(0, args.take);
+      if (args?.include?.manuscriptAsset) {
+        rows = rows.map((r) => ({
+          ...r,
+          manuscriptAsset:
+            Array.from(this._manuscriptAssets.values()).find((m) => m.jobId === r.id) || null,
+        }));
+      }
+      if (args?.include?.templateChoice) {
+        rows = rows.map((r) => ({
+          ...r,
+          templateChoice:
+            Array.from(this._templateChoices.values()).find((t) => t.jobId === r.id) || null,
+        }));
+      }
+      return rows;
+    },
+    findFirst: async ({ where, include }: any) => {
+      const rows = Array.from(this._bookJobs.values());
+      const match = (r: any, cond: any) =>
+        Object.entries(cond || {}).every(([k, v]) => k !== "OR" && r[k] === v);
+      const job = rows.find((r) => match(r, where)) || null;
+      if (!job) return null;
+      const copy: any = { ...job };
+      if (include?.manuscriptAsset) {
+        copy.manuscriptAsset = Array.from(this._manuscriptAssets.values()).find((m) => m.jobId === job.id) || null;
+      }
+      if (include?.structureJson) {
+        copy.structureJson = Array.from(this._bookStructureJSONs.values()).find((s) => s.jobId === job.id) || null;
+      }
+      if (include?.templateChoice) {
+        copy.templateChoice = Array.from(this._templateChoices.values()).find((t) => t.jobId === job.id) || null;
+      }
+      if (include?.qaReports) {
+        copy.qaReports = Array.from(this._qaReports.values()).filter((q) => q.jobId === job.id);
+      }
+      return copy;
+    },
+    updateMany: async ({ where, data }: any) => {
+      let count = 0;
+      const matchOr = (r: any) =>
+        !where?.OR ||
+        where.OR.some((cond: any) =>
+          Object.entries(cond).every(([k, v]) => (r as any)[k] === v)
+        );
+      for (const [id, job] of Array.from(this._bookJobs.entries())) {
+        const userOk =
+          where?.userId === undefined || (where.userId === null ? job.userId == null : job.userId === where.userId);
+        if (userOk && matchOr(job)) {
+          this._bookJobs.set(id, { ...job, ...data, updatedAt: new Date() });
+          count++;
+        }
+      }
+      return { count };
+    },
     deleteMany: async () => {
       const count = this._bookJobs.size;
       this._bookJobs.clear();
@@ -174,6 +246,13 @@ class InMemoryStore {
     },
     findUnique: async ({ where }: any) => {
       return Array.from(this._bookStructureJSONs.values()).find((s) => s.jobId === where.jobId) || null;
+    },
+    update: async ({ where, data }: any) => {
+      const existing = Array.from(this._bookStructureJSONs.values()).find((s) => s.jobId === where.jobId);
+      if (!existing) throw new Error("BookStructureJSON not found");
+      const updated = { ...existing, ...data, updatedAt: new Date() };
+      this._bookStructureJSONs.set(existing.id, updated);
+      return updated;
     },
     deleteMany: async () => {
       this._bookStructureJSONs.clear();
@@ -271,8 +350,30 @@ class InMemoryStore {
       this._renderArtifacts.set(id, record);
       return record;
     },
+    findFirst: async ({ where }: any) => {
+      return (
+        Array.from(this._renderArtifacts.values()).find((a) =>
+          Object.entries(where || {}).every(([k, v]) => (a as any)[k] === v)
+        ) || null
+      );
+    },
     deleteMany: async () => {
       this._renderArtifacts.clear();
+      return { count: 0 };
+    },
+  };
+
+  // AnalyticsEvent
+  analyticsEvent = {
+    create: async ({ data }: { data: any }) => {
+      const id = data.id || this.generateId();
+      const record = { id, createdAt: new Date(), ...data };
+      this._analyticsEvents.set(id, record);
+      return record;
+    },
+    findMany: async () => Array.from(this._analyticsEvents.values()),
+    deleteMany: async () => {
+      this._analyticsEvents.clear();
       return { count: 0 };
     },
   };
@@ -299,9 +400,61 @@ class InMemoryStore {
       this._payments.set(id, record);
       return record;
     },
+    findUnique: async ({ where }: any) => {
+      if (where.id) return this._payments.get(where.id) || null;
+      if (where.stripeSessionId) {
+        return (
+          Array.from(this._payments.values()).find(
+            (p) => p.stripeSessionId === where.stripeSessionId
+          ) || null
+        );
+      }
+      return null;
+    },
+    findFirst: async ({ where }: any) => {
+      const rows = Array.from(this._payments.values());
+      return rows.find((p) => p.stripeSessionId === where?.stripeSessionId) || null;
+    },
+    update: async ({ where, data }: any) => {
+      let record = where.id ? this._payments.get(where.id) : null;
+      if (!record && where.stripeSessionId) {
+        record = Array.from(this._payments.values()).find(
+          (p) => p.stripeSessionId === where.stripeSessionId
+        );
+      }
+      if (!record) throw new Error("Payment not found");
+      const updated = { ...record, ...data, updatedAt: new Date() };
+      this._payments.set(record.id, updated);
+      return updated;
+    },
     deleteMany: async () => {
       this._payments.clear();
       return { count: 0 };
+    },
+  };
+
+  // VerificationToken (magic links)
+  verificationToken = {
+    create: async ({ data }: { data: any }) => {
+      const id = data.id || this.generateId();
+      const record = { id, createdAt: new Date(), consumedAt: null, ...data };
+      this._verificationTokens.set(record.tokenHash, record);
+      return record;
+    },
+    findUnique: async ({ where }: any) => {
+      return this._verificationTokens.get(where.tokenHash) || null;
+    },
+    update: async ({ where, data }: any) => {
+      const existing = this._verificationTokens.get(where.tokenHash);
+      if (!existing) throw new Error("VerificationToken not found");
+      const updated = { ...existing, ...data };
+      this._verificationTokens.set(where.tokenHash, updated);
+      return updated;
+    },
+    deleteMany: async () => {
+      const count = this._verificationTokens.size;
+      this._verificationTokens.clear();
+      return { count };
     },
   };
 
@@ -345,6 +498,13 @@ function cbIsOpen(): boolean {
   cbState.openUntilMs = null;
   return false;
 }
+
+// In production, an unreachable database must fail loudly — falling back to the
+// in-memory store would silently lose every user, job, and payment on restart.
+// ALLOW_IN_MEMORY_DB=true is an explicit escape hatch for test harnesses only.
+const DB_FALLBACK_ENABLED =
+  process.env.NODE_ENV !== "production" ||
+  process.env.ALLOW_IN_MEMORY_DB === "true";
 
 function cbTripFor(windowMs: number = CB_OPEN_MS) {
   cbState.openUntilMs = Date.now() + windowMs;
@@ -395,6 +555,9 @@ function createResilientPrismaProxy() {
           if (typeof origFn !== "function") return origFn || mockFn;
 
           return async (...args: any[]) => {
+            if (!DB_FALLBACK_ENABLED) {
+              return origFn.apply(mTarget, args);
+            }
             const skipReal = cbIsOpen();
             if (skipReal && mockFn) {
               try {

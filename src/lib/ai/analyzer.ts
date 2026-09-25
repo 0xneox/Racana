@@ -9,6 +9,7 @@ import type {
 } from "../manuscript/types";
 import { parseDocx } from "../manuscript/docx-parser";
 import { parsePdf } from "../manuscript/pdf-parser";
+import { detectScript } from "../manuscript/script";
 
 type BookType = BookStructureV1["detectedBookType"];
 
@@ -62,7 +63,9 @@ function matchChapterHeading(block: Block): ChapterHeadingMatch | null {
     return null;
   }
 
-  const chapterRegex = /^chapter\s+([ivxlcdm0-9]+)[\s:.\-—–]*([^\n]*)$/i;
+  // (?![a-zA-Z]) prevents "chapter is…"/"book in…" — 'i' is a roman numeral
+  // letter and would otherwise match ordinary prose as a chapter boundary.
+  const chapterRegex = /^chapter\s+([ivxlcdm0-9]+)(?![a-zA-Z])[\s:.\-—–]*([^\n]*)$/i;
   const chapterMatch = t.match(chapterRegex);
   if (chapterMatch) {
     const num = parseRomanOrArabic(chapterMatch[1]);
@@ -76,7 +79,7 @@ function matchChapterHeading(block: Block): ChapterHeadingMatch | null {
     };
   }
 
-  const bookRegex = /^book\s+([ivxlcdm0-9]+)[\s:.\-—–]*([^\n]*)$/i;
+  const bookRegex = /^book\s+([ivxlcdm0-9]+)(?![a-zA-Z])[\s:.\-—–]*([^\n]*)$/i;
   const bookMatch = t.match(bookRegex);
   if (bookMatch) {
     const num = parseRomanOrArabic(bookMatch[1]);
@@ -250,8 +253,297 @@ function detectBackMatterType(blocks: Block[]): string {
   return "back_matter";
 }
 
+// Convert "Practice — Title" headings and their following content (list items,
+// paragraphs) into a single practice_box block (#4).  The heading is consumed
+// and replaced by a practice_box block whose label is the title text after
+// "Practice — ".  Content is collected until the next heading or end of blocks.
+function convertPracticeBoxes(blocks: Block[]): Block[] {
+  const out: Block[] = [];
+  let i = 0;
+  while (i < blocks.length) {
+    const b = blocks[i];
+    const t = (b.text || "").trim();
+    // Detect "PRACTICE" as a standalone paragraph (the source uses a bare
+    // "PRACTICE" line followed by a title heading) or as an h1 heading
+    // "Practice — Title".
+    if (b.type === "paragraph" && t === "PRACTICE") {
+      // The next block is the title (often an h3), then the content.
+      let label = "";
+      let contentStart = i + 1;
+      if (contentStart < blocks.length) {
+        const next = blocks[contentStart];
+        const nt = (next.text || "").trim();
+        if (next.type === "heading_h3" || next.type === "heading_h2" || next.type === "heading_h1") {
+          label = nt;
+          contentStart++;
+        }
+      }
+      const inner: Block[] = [];
+      while (contentStart < blocks.length) {
+        const cb = blocks[contentStart];
+        if (cb.type === "heading_h1" || cb.type === "heading_h2" || cb.type === "heading_h3") break;
+        if (cb.type === "paragraph" && (cb.text || "").trim() === "PRACTICE") break;
+        inner.push(cb);
+        contentStart++;
+      }
+      out.push({ type: "practice_box", label, blocks: inner });
+      i = contentStart;
+      continue;
+    }
+    if (b.type === "heading_h1" && /^practice\b/i.test(t)) {
+      // "Practice — Meeting Sensation Directly" -> label "Meeting Sensation Directly"
+      const label = t.replace(/^practice\s*[—\-–:]\s*/i, "").trim();
+      const inner: Block[] = [];
+      let j = i + 1;
+      while (j < blocks.length) {
+        const cb = blocks[j];
+        if (cb.type === "heading_h1") break;
+        if (cb.type === "paragraph" && (cb.text || "").trim() === "PRACTICE") break;
+        inner.push(cb);
+        j++;
+      }
+      out.push({ type: "practice_box", label, blocks: inner });
+      i = j;
+      continue;
+    }
+    out.push(b);
+    i++;
+  }
+  return out;
+}
+
+// Split a flat list of front-matter blocks (everything before the first
+// chapter) into discrete typed entries: title_page, copyright, epigraph(s),
+// note/preface, and toc.  This is the core of QA #2/#3/#7 — the old code
+// dumped everything into one "Front matter" paragraph stream.
+//
+// Heuristics, in order:
+//   - A heading or short paragraph containing "copyright" or "©" starts a
+//     copyright entry (and ends the title-page group).
+//   - Quote blocks followed by an attribution line ("— Source") become
+//     epigraph entries.
+//   - A heading "Contents" / "Table of Contents" starts a ToC entry.
+//   - Any other heading (h2/h3/h1 that isn't a chapter marker) starts a
+//     named section entry (note, preface, etc.).
+function splitFrontMatter(
+  blocks: Block[],
+  meta: { title: string; subtitle?: string; author?: string }
+): FrontMatterEntry[] {
+  const entries: FrontMatterEntry[] = [];
+  let i = 0;
+
+  // The title page is handled by the template (it renders title/subtitle/
+  // author from metadata).  We still emit a title_page entry so the generator
+  // knows to skip any title-page blocks in the source rather than dumping
+  // them as body text.
+  const titlePageBlocks: Block[] = [];
+  while (i < blocks.length) {
+    const b = blocks[i];
+    const t = (b.text || "").trim();
+    // Stop the title page at the first copyright marker, epigraph, or
+    // heading that isn't the title itself.
+    if (/copyright|©|all rights reserved/i.test(t)) break;
+    if (b.type === "quote") break;
+    if ((b.type === "heading_h2" || b.type === "heading_h3" || b.type === "heading_h1") &&
+        i > 0) break;
+    titlePageBlocks.push(b);
+    i++;
+  }
+  if (titlePageBlocks.length > 0) {
+    entries.push({ type: "title_page", title: "", blocks: titlePageBlocks });
+  }
+
+  // Copyright page: collect blocks until the next epigraph or heading.
+  if (i < blocks.length && /copyright|©|all rights reserved/i.test(blocks[i].text || "")) {
+    const copyBlocks: Block[] = [];
+    while (i < blocks.length) {
+      const b = blocks[i];
+      if (b.type === "quote") break;
+      if (b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3") break;
+      copyBlocks.push(b);
+      i++;
+    }
+    // Merge copyright blocks into a single copyright block.
+    const copyText = copyBlocks
+      .map((b) => b.text || "")
+      .join("\n")
+      .trim();
+    if (copyText) {
+      entries.push({
+        type: "copyright",
+        title: "",
+        blocks: [{ type: "copyright", text: copyText }],
+      });
+    }
+  }
+
+  // Walk the rest: epigraphs, ToC, and named sections.
+  while (i < blocks.length) {
+    const b = blocks[i];
+    const t = (b.text || "").trim();
+
+    // ToC
+    if (/^(table of contents|contents)$/i.test(t)) {
+      const tocBlocks: Block[] = [];
+      i++;
+      while (i < blocks.length) {
+        const tb = blocks[i];
+        const tt = (tb.text || "").trim();
+        // ToC ends at the first heading that isn't "Contents".
+        if (tb.type === "heading_h1" || tb.type === "heading_h2" || tb.type === "heading_h3") break;
+        // Heuristic: ToC entries contain dot leaders or trailing page numbers.
+        // Stop when we hit a paragraph that doesn't look like a ToC entry.
+        if (tb.type === "paragraph" && !/\.{3,}|…|\s\d+\s*$|·/.test(tt) && tocBlocks.length > 0) break;
+        tocBlocks.push(tb);
+        i++;
+      }
+      // Parse ToC paragraph text into individual toc_entry blocks.
+      const tocEntries = parseTocEntries(tocBlocks);
+      entries.push({ type: "toc", title: "Contents", blocks: tocEntries });
+      continue;
+    }
+
+    // Epigraph: a quote followed by an attribution line.
+    if (b.type === "quote") {
+      const quoteText = (b.text || "").trim();
+      let attribution = "";
+      // The next block is often the attribution ("— Source").
+      if (i + 1 < blocks.length) {
+        const next = blocks[i + 1];
+        const nt = (next.text || "").trim();
+        if (next.type === "paragraph" && /^[\u2014\-–—]/.test(nt) && nt.length < 80) {
+          attribution = nt.replace(/^[\u2014\-–—\s]+/, "");
+          i++;
+        }
+      }
+      entries.push({
+        type: "epigraph",
+        title: "",
+        blocks: [{ type: "epigraph", text: quoteText, attribution }],
+      });
+      i++;
+      continue;
+    }
+
+    // Named section (note, preface, etc.): a heading starts a new entry.
+    if (b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3") {
+      const sectionTitle = t;
+      const sectionBlocks: Block[] = [];
+      i++;
+      while (i < blocks.length) {
+        const sb = blocks[i];
+        if (sb.type === "heading_h1" || sb.type === "heading_h2" || sb.type === "heading_h3") break;
+        if (/^(table of contents|contents)$/i.test((sb.text || "").trim())) break;
+        sectionBlocks.push(sb);
+        i++;
+      }
+      const fmType = detectFrontMatterType(sectionBlocks);
+      entries.push({
+        type: fmType,
+        title: sectionTitle,
+        blocks: sectionBlocks,
+      });
+      continue;
+    }
+
+    // Orphan paragraph (not under any heading) — append to the last entry
+    // if it's a named section, otherwise skip (title-page leftovers).
+    const last = entries[entries.length - 1];
+    if (last && last.type !== "title_page" && last.type !== "copyright" && last.type !== "epigraph" && last.type !== "toc") {
+      last.blocks.push(b);
+    }
+    i++;
+  }
+
+  return entries;
+}
+
+// Parse ToC paragraph blocks (which contain multiple entries concatenated
+// into one paragraph due to PDF text extraction) into individual toc_entry
+// blocks with label + page number.
+function parseTocEntries(blocks: Block[]): Block[] {
+  const entries: Block[] = [];
+  for (const b of blocks) {
+    const text = (b.text || "").trim();
+    if (!text) continue;
+    // Split on the pattern "Title.....Page" — the dot leader is the separator.
+    // Also handle "PART X · Name" part-divider lines (no page number).
+    const lines = text.split(/\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      // Part divider: "PART ONE · The Break"
+      const partMatch = trimmed.match(/^(PART\s+[A-Z]+)\s*[·•]\s*(.+)$/i);
+      if (partMatch && !/\.{3,}|…|\s\d+\s*$/.test(trimmed)) {
+        entries.push({ type: "toc_entry", text: trimmed, page: undefined });
+        continue;
+      }
+      // Chapter entry: "One · The Night the Floor Went.....5"
+      const entryMatch = trimmed.match(/^(.+?)\.{3,}(\d+)\s*$/);
+      if (entryMatch) {
+        entries.push({
+          type: "toc_entry",
+          text: entryMatch[1].trim(),
+          page: parseInt(entryMatch[2], 10),
+        });
+        continue;
+      }
+      // Entry with trailing page number but no dot leader
+      const plainMatch = trimmed.match(/^(.+?)\s+(\d+)\s*$/);
+      if (plainMatch && /·/.test(trimmed)) {
+        entries.push({
+          type: "toc_entry",
+          text: plainMatch[1].trim(),
+          page: parseInt(plainMatch[2], 10),
+        });
+        continue;
+      }
+      // Unparseable line — keep as a plain toc_entry without a page number
+      if (trimmed.length > 3) {
+        entries.push({ type: "toc_entry", text: trimmed, page: undefined });
+      }
+    }
+  }
+  return entries;
+}
+
 const DOUBLE_SPACE_REGEX = /[^\n]\s{2,}[^\n]/g;
 const REPEATED_WORD_REGEX = /\b(\w+)\s+\1\b/gi;
+
+// Unicode script ranges for non-Latin scripts that appear in manuscripts.
+// Used by the script-sanity check (#5) to detect corrupted source text where
+// a "Devanagari" span is actually just 2–3 distinct code points repeated
+// dozens of times (a known PDF text-extraction failure mode).
+const SCRIPT_RANGES: { name: string; from: number; to: number }[] = [
+  { name: "Devanagari", from: 0x0900, to: 0x097f },
+  { name: "Bengali", from: 0x0980, to: 0x09ff },
+  { name: "Gurmukhi", from: 0x0a00, to: 0x0a7f },
+  { name: "Gujarati", from: 0x0a80, to: 0x0aff },
+  { name: "Tamil", from: 0x0b80, to: 0x0bff },
+  { name: "Malayalam", from: 0x0d00, to: 0x0d7f },
+];
+
+// Check a text span for suspiciously low character diversity within a non-
+// Latin script.  Returns the script name if the span looks corrupted, or null
+// if it looks fine.  A "corrupted" span is one with >= 20 non-Latin characters
+// but fewer than 5 distinct code points — real text always has more.
+function detectCorruptedScript(text: string): string | null {
+  for (const range of SCRIPT_RANGES) {
+    const chars: Set<string> = new Set();
+    let count = 0;
+    for (const ch of text) {
+      const cp = ch.codePointAt(0)!;
+      if (cp >= range.from && cp <= range.to) {
+        chars.add(ch);
+        count++;
+      }
+    }
+    if (count >= 20 && chars.size < 5) {
+      return range.name;
+    }
+  }
+  return null;
+}
 
 function generateWarnings(
   blocks: Block[],
@@ -303,6 +595,18 @@ function generateWarnings(
           });
         }
       }
+      // Unicode/script sanity check (#5): flag non-Latin script spans with
+      // suspiciously low character diversity — a sign of corrupted PDF text
+      // extraction (e.g. "ततत तततततत" instead of real Devanagari verse).
+      const corruptedScript = detectCorruptedScript(t);
+      if (corruptedScript) {
+        warnings.push({
+          code: "corrupted_script",
+          level: "warning",
+          message: `Possible corrupted ${corruptedScript} text detected — please re-check this passage before printing.`,
+          page: Math.max(1, Math.min(estimatedPages, pageCursor)),
+        });
+      }
       bumpPage(bw);
     }
   }
@@ -348,7 +652,7 @@ function detectBookType(
   ) {
     return "philosophy";
   }
-  if (/\b[yoga|sutra|mantra|guru|buddha|dharma|tantra|puja|bhakti|krishna|shiva|vedanta|sanskrit]\b/.test(t) ||
+  if (/\b(yoga|sutra|mantra|guru|buddha|dharma|tantra|puja|bhakti|krishna|shiva|vedanta|sanskrit)\b/.test(t) ||
     /[\u0900-\u097F]/.test(t)) {
     return "spiritual";
   }
@@ -366,6 +670,16 @@ function detectBookType(
   }
   if (chapterCount >= 3) return "novel";
   return "other";
+}
+
+function looksLikeAuthorName(s: string): boolean {
+  const t = s.trim();
+  if (!t || t.length > 60) return false;
+  const wc = t.split(/\s+/).length;
+  if (wc < 1 || wc > 5) return false;
+  if (/[.!?;:,]$/.test(t)) return false;
+  // Capitalized name tokens only (Latin or Devanagari initials), e.g. "Jane Austen", "J. R. R. Tolkien"
+  return /^[A-Z\u0900-\u097F][\p{L}.'\u2019-]*(?:\s+[A-Z\u0900-\u097F][\p{L}.'\u2019-]*){0,4}$/u.test(t);
 }
 
 function extractTitleAndAuthor(
@@ -390,15 +704,26 @@ function extractTitleAndAuthor(
       b.type === "paragraph"
   );
 
+  let blockIdx = 0;
+  let seenParagraph = false;
   for (const b of firstHeadings) {
+    blockIdx++;
     const txt = (b.text || "").trim();
     if (!txt) continue;
+    if (b.type === "paragraph") seenParagraph = true;
+    // Chapter markers ("Chapter 1", "Book III") are content headings, never the book title
+    if (matchChapterHeading(b)) continue;
     if (b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3") {
       if (!title) {
         title = txt;
         continue;
       }
-      if (title && !subtitle && txt.length < 120) {
+      // Only h1/h2 before body text starts can be the subtitle — section
+      // heads ("I.1: On Debt…", "A Note Before We Begin") are not subtitles.
+      if (
+        title && !subtitle && txt.length < 120 && !seenParagraph &&
+        (b.type === "heading_h1" || b.type === "heading_h2")
+      ) {
         subtitle = txt;
         break;
       }
@@ -407,9 +732,22 @@ function extractTitleAndAuthor(
       title = txt;
       continue;
     }
+    // A short Latin line right after the title is the subtitle ("On Seeing
+    // Clearly and Forgetting Anyway") — it arrives as a paragraph, not a
+    // heading. Latin-only: Indic opening invocations are epigraphs, not
+    // subtitles.
+    if (
+      title && !subtitle && b.type === "paragraph" && blockIdx <= 4 &&
+      /^[A-Z][A-Za-z'’\- ]+$/.test(txt) &&
+      countWords(txt) >= 2 && countWords(txt) <= 10 &&
+      !looksLikeAuthorName(txt)
+    ) {
+      subtitle = txt;
+      continue;
+    }
     if (title && !author) {
       const byline = txt.match(/^(?:by|written by|author|authored by)\s+(.+)$/i);
-      if (byline) {
+      if (byline && looksLikeAuthorName(byline[1])) {
         author = byline[1].trim();
         break;
       }
@@ -418,15 +756,11 @@ function extractTitleAndAuthor(
         countWords(txt) >= 1 &&
         countWords(txt) <= 5 &&
         txt.length < 80 &&
-        /^[A-Z\u0900-\u097F]/.test(txt) &&
-        !/[.!?;:]$/.test(txt) &&
-        subtitle === undefined
+        blockIdx <= 8 && // author lines live on the title page — a short
+        looksLikeAuthorName(txt) // capitalized line deeper in is more likely a heading
       ) {
-        const looksLikeName = /^[A-Z][a-z]+(?:\s+[A-Z][a-z.]+){0,3}$/.test(txt);
-        if (looksLikeName) {
-          author = txt;
-          break;
-        }
+        author = txt;
+        break;
       }
     }
     if (title && subtitle && author) break;
@@ -436,9 +770,50 @@ function extractTitleAndAuthor(
     title = nameFromFile || "Untitled Manuscript";
   }
 
-  const authorMatch = rawText.match(/^[\s\uFEFF]*(?:by|written by)\s+(.+)$/im);
-  if (!author && authorMatch) {
+  // PDF title pages merge title/subtitle/author into one copyright paragraph —
+  // recover the subtitle from the raw line right after the title line.
+  if (!subtitle && title) {
+    const lines = rawText.split(/\r?\n/).map((l) => l.trim());
+    const ti = lines.findIndex((l) => l === title || l === title.toUpperCase() || (title.length > 3 && l === title));
+    if (ti >= 0) {
+      for (let j = ti + 1; j < Math.min(ti + 4, lines.length); j++) {
+        const l = lines[j];
+        if (!l || /^[\d\s\-–—]*$/.test(l)) continue; // blanks & page numbers
+        if (
+          /^[A-Z][A-Za-z'’\- ]+$/.test(l) &&
+          l.split(/\s+/).length >= 2 && l.split(/\s+/).length <= 10 &&
+          !looksLikeAuthorName(l)
+        ) {
+          subtitle = l;
+        }
+        break;
+      }
+    }
+  }
+
+  const authorMatch = rawText.match(/^[\s\uFEFF]*(?:by|written by)\s+([^\n]{1,60})$/im);
+  if (!author && authorMatch && looksLikeAuthorName(authorMatch[1])) {
     author = authorMatch[1].trim();
+  }
+
+  // PDF exports often fold the author line into the copyright paragraph — scan
+  // the raw title-page lines directly for a name-shaped line.
+  if (!author) {
+    const earlyLines = rawText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(0, 15);
+    for (const l of earlyLines) {
+      if (l === title || l === subtitle) continue;
+      if (/^(copyright|©|all rights|isbn)/i.test(l)) continue;
+      if (/^(book|chapter|part|section|page|volume)\b/i.test(l)) continue;
+      if (/^[—–\-•*"“‘'’\u0964\u0965]/.test(l)) continue; // epigraphs, quotes, ornaments
+      if (looksLikeAuthorName(l)) {
+        author = l;
+        break;
+      }
+    }
   }
 
   return { title, subtitle, author };
@@ -574,7 +949,16 @@ export async function analyzeManuscript(
   const chapterSegments: Array<{ match: ChapterHeadingMatch; blocks: Block[] }> = [];
 
   if (chapterMatches.length === 0) {
-    const firstH1 = blocks.findIndex((b) => b.type === "heading_h1");
+    // No explicit "Chapter N" markers — fall back to treating every h1 as a
+    // chapter boundary.  But exclude front-matter named sections (Preface,
+    // Contents, Note, etc.) and Practice sections — those are not chapters.
+    // Part dividers ARE included as chapter segments because they're
+    // structural elements within the body (the generator renders Part
+    // dividers as folio-less section breaks).
+    const FRONT_MATTER_HEADINGS = /^(preface|foreword|prologue|introduction|contents|table of contents|acknowledge?ments?|dedication|note|a note|epilogue|afterword)/i;
+    const firstH1 = blocks.findIndex(
+      (b) => b.type === "heading_h1" && !FRONT_MATTER_HEADINGS.test((b.text || "").trim()) && !/^practice\b/i.test((b.text || "").trim())
+    );
     if (firstH1 >= 0) {
       const fakeMatch: ChapterHeadingMatch = {
         blockIndex: firstH1,
@@ -586,6 +970,9 @@ export async function analyzeManuscript(
       let counter = 1;
       for (let i = firstH1 + 1; i < blocks.length; i++) {
         if (blocks[i].type === "heading_h1") {
+          const h1Text = (blocks[i].text || "").trim();
+          // Skip front-matter named sections and Practice sections.
+          if (FRONT_MATTER_HEADINGS.test(h1Text) || /^practice\b/i.test(h1Text)) continue;
           counter++;
           chapterMatches.push({
             blockIndex: i,
@@ -661,17 +1048,14 @@ export async function analyzeManuscript(
 
   const frontMatter: FrontMatterEntry[] = [];
   if (frontMatterBlocks.length > 0) {
-    const fmType = detectFrontMatterType(frontMatterBlocks);
-    frontMatter.push({
-      type: fmType,
-      title: fmType.charAt(0).toUpperCase() + fmType.slice(1).replace(/_/g, " "),
-      blocks: frontMatterBlocks,
-    });
+    frontMatter.push(...splitFrontMatter(frontMatterBlocks, meta));
   }
 
   const chapters: ChapterEntry[] = chapterSegments.map((seg, idx) => {
     const number = seg.match.chapterNumber || idx + 1;
-    const sections = splitIntoSections(seg.blocks);
+    // Convert Practice headings + their content into practice_box blocks (#4).
+    const processedBlocks = convertPracticeBoxes(seg.blocks);
+    const sections = splitIntoSections(processedBlocks);
     const wordCount = countBlocksWords(seg.blocks);
     return {
       number,
@@ -692,6 +1076,7 @@ export async function analyzeManuscript(
   }
 
   const detectedBookType = detectBookType(rawText, blocks, chapters.length);
+  const scriptInfo = detectScript(rawText);
 
   let structure: BookStructureV1 = {
     schemaVersion: 1,
@@ -701,6 +1086,8 @@ export async function analyzeManuscript(
     detectedBookType,
     chapterCount: chapters.length,
     estimatedPages,
+    detectedScript: scriptInfo.script,
+    scriptLabel: scriptInfo.label,
     warnings: [],
     frontMatter,
     chapters,

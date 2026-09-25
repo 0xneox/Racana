@@ -41,10 +41,24 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+# Typesetting engine assets — resolved via RACANA_ROOT/cwd at runtime:
+# bundled Typst binary, embedded open-license fonts, and .typ templates.
+COPY --from=builder /app/bin ./bin
+COPY --from=builder /app/src/lib/renderer ./src/lib/renderer
+# Prisma CLI so the container can apply the schema (db push) on boot.
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+
+# Writable dirs for the unprivileged runtime user: Typst render workspace and
+# the local-disk storage fallback (used only if S3 is unreachable).
+RUN mkdir -p /app/.typst-render-tmp /app/storage && \
+    chown -R nextjs:nodejs /app/.typst-render-tmp /app/storage
 
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+ENV RACANA_ROOT=/app
 
-CMD ["node", "server.js"]
+# Apply the schema (idempotent) then start the standalone server.
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --skip-generate || echo '[boot] prisma db push failed — ensure DATABASE_URL is reachable'; node server.js"]

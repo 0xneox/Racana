@@ -4,12 +4,22 @@ import { uploadToStorage } from "@/lib/storage/s3";
 import prisma from "@/lib/db";
 import { BookType, JobStatus, TemplateKey, TrimSize } from "@prisma/client";
 import crypto from "crypto";
-import { GENERIC_INTERNAL_ERROR, logServerError, requireSession } from "@/lib/auth-utils";
+import { GENERIC_INTERNAL_ERROR, logServerError, requireIdentity, withGuestCookie } from "@/lib/auth-utils";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
+import { addJobToQueue } from "@/lib/queue/queue";
 
 export async function POST(request: NextRequest) {
   try {
-    const { user, error } = await requireSession();
-    if (error) return error;
+    const identity = await requireIdentity();
+
+    const ip = getClientIp(request);
+    const limit = rateLimit(`upload:${identity.user?.id || identity.guestId}:${ip}`, 15, 60 * 60 * 1000);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: "Upload limit reached. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } }
+      );
+    }
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
@@ -49,7 +59,8 @@ export async function POST(request: NextRequest) {
 
     const job = await prisma.bookJob.create({
       data: {
-        userId: user!.id,
+        userId: identity.user?.id || null,
+        guestId: identity.user ? null : identity.guestId,
         status: JobStatus.uploaded,
         progress: 0,
         currentStep: "uploaded",
@@ -92,14 +103,29 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({
-      success: true,
-      jobId: job.id,
-      fileName: file.name,
-      pageCountEstimate: validation.pageCountEstimate,
-      wordCountEstimate: validation.wordCountEstimate,
-      bookType,
+    // Kick off structure analysis via the queue so it runs off the request
+    // thread — an early response can never kill it mid-flight, and the same
+    // path works on serverless where in-request work would be frozen.
+    await prisma.bookJob.update({
+      where: { id: job.id },
+      data: { status: JobStatus.analyzing, currentStep: "Analyzing manuscript" },
     });
+    const dispatch = await addJobToQueue(job.id, { task: "analyze" });
+    if (!dispatch.success) {
+      logServerError("Post-upload analysis dispatch", new Error("Queue dispatch failed"));
+    }
+
+    return withGuestCookie(
+      NextResponse.json({
+        success: true,
+        jobId: job.id,
+        fileName: file.name,
+        pageCountEstimate: validation.pageCountEstimate,
+        wordCountEstimate: validation.wordCountEstimate,
+        bookType,
+      }),
+      identity
+    );
   } catch (err) {
     logServerError("Upload API", err);
     return NextResponse.json(

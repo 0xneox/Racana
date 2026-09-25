@@ -1,257 +1,90 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Sparkles, FileText, Check, ShieldCheck } from "lucide-react";
+import { ArrowDown, ArrowRight, Check, ChevronDown } from "lucide-react";
+import type { ReactNode } from "react";
 
-export default function HomePage() {
-  return (
-    <div className="bg-[#FDFBF7]">
-      {/* Hero Section */}
-      <section className="pt-16 pb-20 md:pt-24 md:pb-28 px-4 sm:px-6 max-w-5xl mx-auto text-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#F4EFEA] border border-[#E2DDD2] text-xs font-medium text-[#78716C] mb-8">
-          <Sparkles className="w-3.5 h-3.5 text-[#A34825]" />
-          <span>Zero-technical interior typesetting for authors</span>
-        </div>
+import { LandingHeader } from "@/components/landing/Header";
+import { MobileAction } from "@/components/landing/MobileAction";
 
-        <h1 className="font-serif text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-[#1C1917] max-w-3xl mx-auto leading-[1.15] mb-6">
-          Your manuscript in. <br />
-          <span className="italic font-serif text-[#A34825]">Your finished book out.</span>
-        </h1>
+export const metadata: Metadata = {
+  title: "Racana — Book Interior Typesetting",
+  description:
+    "Turn your DOCX or PDF manuscript into a professionally typeset, print-ready book interior in about two minutes.",
+  openGraph: {
+    title: "Racana — Your manuscript in. Your finished book out.",
+    description:
+      "Professional book interior typesetting for independent authors. Preview free, then create your print-ready PDF for $29.",
+    type: "website",
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
+  alternates: {
+    canonical: "/",
+  },
+};
 
-        <p className="font-sans text-lg sm:text-xl text-[#57534E] max-w-2xl mx-auto mb-10 leading-relaxed font-normal">
-          Upload. Choose a style. Get a print-ready book.
-        </p>
+const bookStyles = [
+  { name: "Classic", mood: "Traditional. Warm. Familiar.", use: "Novels, memoirs, history and essays", type: "font-serif", numeral: "I" },
+  { name: "Modern", mood: "Clean. Open. Contemporary.", use: "Business, essays and modern nonfiction", type: "font-sans", numeral: "II" },
+  { name: "Philosophy", mood: "Spacious. Reflective. Deliberate.", use: "Philosophical and contemplative writing", type: "font-serif italic", numeral: "III" },
+  { name: "Academic", mood: "Structured. Serious. Precise.", use: "Research, technical and scholarly work", type: "font-serif", numeral: "IV" },
+  { name: "Literary", mood: "Expressive. Refined. Bookish.", use: "Fiction and distinctive literary voices", type: "font-serif", numeral: "V" },
+  { name: "Indian Classical", mood: "Traditional. Ornamental. Rooted.", use: "Hindi, Tamil, Malayalam & Indian language books", type: "font-serif", numeral: "VI" },
+];
+const faqs = [
+  ["What files can I upload?", "DOCX and PDF manuscripts are supported."],
+  ["Will Racana change my writing?", "No. Racana formats your manuscript; it does not rewrite it."],
+  ["Can I see the result before paying?", "Yes. Start with a free preview before purchasing the finished interior."],
+  ["What trim sizes are supported?", "5 × 8\", 5.5 × 8.5\", 6 × 9\", and 8.5 × 11\"."],
+  ["Can I change the style?", "Yes. Preview all five styles and choose the one that fits your book."],
+  ["Does Racana make my cover?", "No. Racana currently focuses on the interior pages."],
+];
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
-          <Link
-            href="/upload"
-            className="w-full sm:w-auto px-8 py-4 rounded-xl bg-[#1C1917] text-[#F8F5EE] font-medium text-base shadow-md hover:bg-[#2E2824] hover:shadow-lg transition-all flex items-center justify-center gap-2 group"
-          >
-            <span>Upload your manuscript</span>
-            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-          </Link>
-          <a
-            href="#pricing"
-            className="w-full sm:w-auto px-6 py-4 rounded-xl border border-[#D6CEBE] bg-[#F8F5EE] text-[#44403C] font-medium text-base hover:border-[#1C1917] hover:text-[#1C1917] transition-all"
-          >
-            See Pricing ($29 / book)
-          </a>
-        </div>
-
-        {/* The Core Promise Callout */}
-        <div className="bg-[#F8F5EE] border border-[#E8E2D5] rounded-2xl p-6 sm:p-8 max-w-3xl mx-auto text-left shadow-sm">
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-xl bg-[#A34825]/10 text-[#A34825] flex items-center justify-center shrink-0 mt-1">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-serif text-lg font-bold text-[#1C1917] mb-1">
-                The Zero-Technical Promise
-              </h3>
-              <p className="text-sm text-[#57534E] leading-relaxed mb-4">
-                You never need to calculate margins, gutter compensation, trim sizes, typography leading, widow/orphan rules, bleed dimensions, or PDF/X conformance. We handle every millimeter so you can publish with confidence.
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-[#78716C]">
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#A34825]" /> No margin math
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#A34825]" /> Auto recto openings
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#A34825]" /> Balanced folios
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#A34825]" /> Guaranteed print specs
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Visual Comparison: Manuscript In -> Book Out */}
-      <section className="py-16 bg-[#F4EFEA] border-y border-[#E8E2D5]">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-2xl mx-auto mb-12">
-            <h2 className="font-serif text-2xl sm:text-3xl font-bold text-[#1C1917] mb-3">
-              Bookstore Quality in Under Two Minutes
-            </h2>
-            <p className="text-sm text-[#57534E]">
-              From messy Word documents to crisp, master-typeset book interiors ready for Amazon KDP, IngramSpark, or traditional offset printing.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-            {/* Before: Raw Manuscript */}
-            <div className="bg-white rounded-xl border border-[#E2DDD2] p-6 shadow-sm">
-              <div className="flex items-center justify-between pb-4 border-b border-[#F4EFEA] mb-4">
-                <span className="text-xs font-mono text-[#A8A29E] flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5" /> draft_manuscript_final_v2.docx
-                </span>
-                <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded bg-[#F4EFEA] text-[#78716C]">
-                  Raw Input
-                </span>
-              </div>
-              <div className="space-y-2.5 opacity-60 text-xs font-mono text-[#44403C] select-none pointer-events-none">
-                <div className="font-bold text-sm">Chapter 1. The Beginning</div>
-                <p>
-                  It was a dark and stormy night when the manuscript was first opened. There were default margins of 1 inch everywhere, no gutter compensation for binding, loose leading, and erratic line spacing...
-                </p>
-                <div className="h-2 w-full bg-[#E5DFD3] rounded" />
-                <div className="h-2 w-5/6 bg-[#E5DFD3] rounded" />
-                <div className="h-2 w-4/6 bg-[#E5DFD3] rounded" />
-              </div>
-              <div className="mt-6 pt-4 border-t border-[#F4EFEA] text-[11px] text-[#A8A29E] italic">
-                ✗ Flat margins ✗ Unbound gutter ✗ Generic font
-              </div>
-            </div>
-
-            {/* After: Typeset Book Interior */}
-            <div className="bg-[#FDFBF7] rounded-xl border-2 border-[#1C1917] p-6 shadow-md relative overflow-hidden">
-              <div className="absolute -right-12 -top-12 w-28 h-28 bg-[#A34825]/10 rounded-full blur-xl pointer-events-none" />
-              <div className="flex items-center justify-between pb-4 border-b border-[#E8E2D5] mb-4">
-                <span className="text-xs font-serif font-semibold text-[#1C1917]">
-                  Typeset Interior • 6″ × 9″ Standard
-                </span>
-                <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded bg-[#1C1917] text-white">
-                  Print Ready
-                </span>
-              </div>
-              <div className="space-y-3 text-xs text-[#292524] select-none font-serif">
-                <div className="text-center font-serif text-sm tracking-widest uppercase text-[#57534E] mb-2">
-                  CHAPTER I
-                </div>
-                <div className="text-justify leading-relaxed">
-                  <span className="float-left text-3xl font-serif leading-none pr-1.5 pt-0.5 text-[#1C1917]">
-                    I
-                  </span>
-                  t is a truth universally acknowledged that a manuscript properly typeset invites contemplative reading. Symmetrical folios, generous outer margins, and an exact 0.875″ inside gutter allow your physical book to open flat without hiding text in the binding spine.
-                </div>
-              </div>
-              <div className="mt-6 pt-4 border-t border-[#E8E2D5] text-[11px] text-[#A34825] font-medium flex items-center justify-between">
-                <span>✓ Perfect spine gutter</span>
-                <span>✓ Recto opening</span>
-                <span>✓ PDF/X verified</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing Section */}
-      <section id="pricing" className="py-20 px-4 sm:px-6 max-w-5xl mx-auto">
-        <div className="text-center max-w-xl mx-auto mb-16">
-          <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#1C1917] mb-3">
-            Simple, Honest Pricing
-          </h2>
-          <p className="text-sm text-[#57534E]">
-            No forced subscriptions. No hidden typesetting fees. Pay only when you have a finished book ready to print.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
-          {/* Free Tier */}
-          <div className="rounded-2xl border border-[#E2DDD2] bg-white p-7 flex flex-col justify-between">
-            <div>
-              <h3 className="font-serif font-bold text-lg text-[#1C1917] mb-1">Free Preview</h3>
-              <p className="text-xs text-[#78716C] mb-4">Sample your book before committing</p>
-              <div className="text-3xl font-bold text-[#1C1917] font-serif mb-6">$0</div>
-              <ul className="space-y-3 text-xs text-[#57534E] mb-8">
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A34825]" /> Upload any DOCX or PDF
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A34825]" /> Preview all 5 book styles
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A34825]" /> Automated QA report
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A34825]" /> Sample chapter PDF export
-                </li>
-              </ul>
-            </div>
-            <Link
-              href="/upload"
-              className="w-full py-2.5 rounded-lg border border-[#D6CEBE] text-center text-xs font-semibold text-[#1C1917] hover:bg-[#F8F5EE] transition-colors"
-            >
-              Start Free Preview
-            </Link>
-          </div>
-
-          {/* Pay-per-book Tier (Highlighted) */}
-          <div className="rounded-2xl border-2 border-[#1C1917] bg-[#FDFBF7] p-7 flex flex-col justify-between relative shadow-lg">
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#1C1917] text-white px-3 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase">
-              Most Popular
-            </div>
-            <div>
-              <h3 className="font-serif font-bold text-lg text-[#1C1917] mb-1">Pay-Per-Book</h3>
-              <p className="text-xs text-[#78716C] mb-4">One-time payment. Complete print-ready interior.</p>
-              <div className="text-3xl font-bold text-[#1C1917] font-serif mb-6">
-                $29 <span className="text-xs font-sans text-[#78716C] font-normal">/ book</span>
-              </div>
-              <ul className="space-y-3 text-xs text-[#57534E] mb-8">
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A34825]" /> Full interior PDF (up to 300 pages)
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A34825]" /> PDF/X compliant for Amazon KDP & Ingram
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A34825]" /> All 4 trim sizes included
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A34825]" /> Unlimited re-downloads & typo fixes
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A34825]" /> Direct email delivery of files
-                </li>
-              </ul>
-            </div>
-            <Link
-              href="/upload"
-              className="w-full py-2.5 rounded-lg bg-[#1C1917] text-center text-xs font-semibold text-[#F8F5EE] hover:bg-[#2E2824] transition-colors shadow-sm"
-            >
-              Upload & Typeset Now
-            </Link>
-          </div>
-
-          {/* Pro Tier (Coming Soon) */}
-          <div className="rounded-2xl border border-[#E2DDD2] bg-white p-7 flex flex-col justify-between opacity-80">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <h3 className="font-serif font-bold text-lg text-[#1C1917]">Pro Studio</h3>
-                <span className="text-[10px] font-semibold bg-[#F4EFEA] text-[#78716C] px-2 py-0.5 rounded">
-                  Coming Later
-                </span>
-              </div>
-              <p className="text-xs text-[#78716C] mb-4">For publishers & prolific authors</p>
-              <div className="text-3xl font-bold text-[#78716C] font-serif mb-6">
-                $79 <span className="text-xs font-sans text-[#A8A29E] font-normal">/ month</span>
-              </div>
-              <ul className="space-y-3 text-xs text-[#78716C] mb-8">
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A8A29E]" /> Unlimited books per month
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A8A29E]" /> Custom publisher colophon branding
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A8A29E]" /> Batch upload queue
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#A8A29E]" /> Priority typesetting rendering
-                </li>
-              </ul>
-            </div>
-            <button
-              disabled
-              className="w-full py-2.5 rounded-lg border border-[#E2DDD2] text-center text-xs font-semibold text-[#A8A29E] cursor-not-allowed bg-[#F8F5EE]"
-            >
-              Join Pro Waitlist
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
+function PrimaryLink({ children }: { children: ReactNode }) {
+  return <Link href="/upload" className="group inline-flex min-h-12 items-center justify-center gap-3 rounded-sm bg-primary px-6 text-sm font-semibold text-primary-foreground transition-all hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">{children}<ArrowRight className="size-4 transition-transform group-hover:translate-x-1" /></Link>;
 }
+
+function ManuscriptPage({ finished = false, compact = false }: { finished?: boolean; compact?: boolean }) {
+  return <div className={`relative mx-auto aspect-[3/4] w-full bg-paper text-foreground shadow-page ${compact ? "max-w-72 p-6" : "max-w-sm p-7 sm:p-10"}`}>
+    {finished ? <><div className="flex justify-between border-b border-rule/60 pb-2 font-serif text-[8px] uppercase tracking-[0.18em] text-muted-foreground"><span>The Architecture of Silence</span><span>17</span></div><div className="flex h-full flex-col pt-[18%] text-center"><span className="text-[8px] uppercase tracking-[0.28em] text-primary">Chapter Three</span><h3 className="mt-3 font-serif text-2xl font-semibold leading-none sm:text-3xl">The Weight<br />of Quiet Things</h3><div className="mx-auto mt-5 h-px w-8 bg-primary" /><div className="mt-7 space-y-2 text-left font-serif text-[9px] leading-[1.65] text-ink-soft sm:text-[10px]"><p><span className="float-left mr-1 text-4xl leading-[.75] text-primary">T</span>here are rooms we remember not for what happened in them, but for the silence they held.</p><p>The afternoon settled over the house. Light moved slowly across the floorboards, finding every mark time had left behind.</p><p>Outside, the leaves turned in a wind too soft to hear.</p></div></div></> : <><div className="flex items-center gap-2 border-b border-border pb-3 text-[8px] text-muted-foreground"><i className="size-2 rounded-full bg-destructive/60" /><i className="size-2 rounded-full bg-accent" /><i className="size-2 rounded-full bg-forest/50" /><span className="ml-2">manuscript-final.docx</span></div><div className="pt-8 text-[9px] leading-[1.75] text-ink-soft sm:text-[10px]"><p className="mb-1 font-semibold">CHAPTER 3</p><p className="mb-5 text-base font-bold leading-tight">THE WEIGHT OF QUIET THINGS</p><p>There are rooms we remember not for what happened in them, but for the silence they held.</p><p className="mt-2">The afternoon settled over the house. Light moved slowly across the floorboards, finding every mark time had left behind.</p><p className="mt-2">Outside, the leaves turned in a wind too soft to hear.</p><span className="mt-4 block w-16 bg-secondary px-1 text-[8px]">[PAGE BREAK]</span></div></>}
+  </div>;
+}
+
+export default function Index() {
+  return <main id="top" className="mobile-safe page-grain overflow-hidden"><a href="#content" className="fixed left-3 top-3 z-[100] -translate-y-24 bg-foreground px-4 py-3 text-xs font-bold text-background focus:translate-y-0">Skip to content</a><LandingHeader />
+    <section id="content" className="border-b border-border pt-28 lg:min-h-[850px] lg:pt-32"><div className="mx-auto max-w-[1440px] px-5 pb-20 md:px-10 lg:px-16"><div className="reveal flex items-center justify-between border-b border-foreground/15 pb-4 text-[9px] font-bold uppercase tracking-[0.28em]"><span>The 2-Minute Book Interior Publisher</span><span className="hidden text-muted-foreground sm:block">Racana Studio · Est. 2026</span></div><div className="reveal overflow-hidden border-b border-foreground/15 py-4 sm:py-6"><p aria-hidden="true" className="font-serif text-[clamp(4.6rem,14.2vw,13rem)] font-black leading-[0.72] tracking-[-0.045em]">RACANA</p></div><div className="grid gap-14 pt-10 lg:grid-cols-12 lg:items-end"><div className="reveal lg:col-span-5"><p className="mb-6 text-[10px] font-extrabold uppercase tracking-[0.28em] text-primary">Book interior typesetting / 01</p><h1 className="font-serif text-[clamp(3rem,5vw,5.5rem)] font-medium leading-[0.92]">Your manuscript in.<br /><span className="italic text-primary">Your finished book out.</span></h1><p className="mt-7 max-w-lg border-l border-foreground pl-6 text-base font-light leading-7 text-muted-foreground">Upload your DOCX or PDF, choose a book style, and Racana turns it into a professionally typeset interior ready for print.</p><div id="hero-action" className="mt-8 flex flex-col items-start gap-5 sm:flex-row sm:items-center"><PrimaryLink>Start with your manuscript</PrimaryLink><a href="#how" className="inline-flex items-center gap-2 text-sm font-semibold underline decoration-border">See how it works <ArrowDown className="size-4" /></a></div><p className="mt-7 text-[11px] leading-6 text-muted-foreground">Free preview · $29 (≈ ₹2,450) per finished interior · No subscription</p></div><div className="reveal reveal-delay grid grid-cols-[1fr_28px_1fr] items-center gap-2 sm:grid-cols-[1fr_52px_1fr] sm:gap-5 lg:col-span-7"><div><p className="mb-4 text-center text-[8px] font-bold uppercase tracking-[0.26em] text-muted-foreground">Your manuscript</p><ManuscriptPage /></div><div className="flex"><span className="h-px flex-1 bg-rule" /><ArrowRight className="size-5 text-primary" /></div><div className="page-breathe translate-y-6"><p className="mb-4 text-center text-[8px] font-bold uppercase tracking-[0.26em] text-primary">Racana interior</p><ManuscriptPage finished /></div></div></div></div></section>
+    <section className="border-b border-border bg-paper-deep/60 py-7"><div className="mx-auto flex max-w-[1440px] flex-wrap justify-center gap-x-10 gap-y-4 px-5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground lg:justify-between lg:px-16"><span className="text-primary">Built for print</span>{["Precise trim sizes", "Professional typography", "Chapter-aware layout", "Print-ready PDF", "Automated quality checks"].map((x) => <span key={x}>{x}</span>)}</div></section>
+    <section id="how" className="px-5 py-24 md:px-10 md:py-32 lg:px-16"><div className="mx-auto max-w-[1312px]"><div className="flex items-end justify-between border-b border-border pb-8"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.36em] text-primary">The methodology</p><h2 className="mt-4 font-serif text-5xl font-medium sm:text-6xl">Three steps. That's it.</h2></div><span className="hidden text-[9px] font-bold uppercase tracking-[0.24em] text-muted-foreground md:block">Phase 01 — 03</span></div><div className="grid border-x border-b border-border md:grid-cols-3">{[["01", "Upload", "Give us your manuscript.", "DOCX or PDF. Your words stay exactly as you wrote them."], ["02", "Choose", "Choose the visual language of your book.", "Classic, Modern, Philosophy, Academic, Literary, or Indian Classical."], ["03", "Download", "Receive the finished interior.", "Racana typesets every page and prepares the final PDF for print."]].map(([n,t,b,s],i) => <article key={n} className={`group flex min-h-80 flex-col justify-between p-8 transition-colors hover:bg-paper ${i ? "border-t border-border md:border-l md:border-t-0" : ""}`}><div className="flex items-start justify-between"><span className="font-serif text-4xl italic text-primary">{n}</span><span className="size-2 scale-0 rounded-full bg-foreground transition-transform group-hover:scale-100" /></div><div><h3 className="text-xs font-extrabold uppercase tracking-[0.2em]">{t}</h3><p className="mt-5 font-medium">{b}</p><p className="mt-2 max-w-xs text-sm font-light leading-6 text-muted-foreground">{s}</p></div></article>)}</div><p className="mt-7 text-xs uppercase tracking-[0.12em] text-muted-foreground">The whole process usually takes about two minutes.</p></div></section>
+    <section id="styles" className="bg-forest px-5 py-24 text-forest-foreground md:px-10 md:py-32 lg:px-16"><div className="mx-auto max-w-[1312px]"><div className="flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-accent">Six book styles</p><h2 className="mt-4 max-w-2xl font-serif text-5xl sm:text-6xl">Six ways to give your book form.</h2></div><p className="max-w-sm text-sm leading-6 text-forest-foreground/70">Every book has a different voice. Choose the typography that belongs with yours.</p></div><div className="mt-16 grid gap-px bg-forest-foreground/20 sm:grid-cols-2 lg:grid-cols-6">{bookStyles.map((s) => <article key={s.name} className="group bg-forest p-5"><div className="aspect-[3/4] bg-paper p-5 text-foreground shadow-page transition-transform duration-500 group-hover:-translate-y-2"><div className="flex justify-between border-b border-rule/50 pb-2 text-[6px] uppercase tracking-[0.18em] text-muted-foreground"><span>Racana</span><span>{s.numeral}</span></div><div className="flex h-[85%] flex-col items-center justify-center text-center"><span className="text-[6px] uppercase tracking-[0.25em] text-primary">Chapter One</span><h3 className={`mt-3 text-2xl leading-none ${s.type}`}>A Room<br />of Words</h3><div className="mt-4 h-px w-7 bg-primary" /><p className={`mt-5 text-[7px] leading-relaxed text-ink-soft ${s.type}`}>A book begins long before its first page is turned.</p></div></div><p className="mt-6 font-serif text-2xl">{s.name}</p><p className="mt-1 text-xs text-forest-foreground/80">{s.mood}</p><p className="mt-4 min-h-10 text-[11px] leading-5 text-forest-foreground/55">{s.use}</p><Link href="/upload" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-accent">Preview {s.name} <ArrowRight className="size-3" /></Link></article>)}</div></div></section>
+    <BeforeAfter />
+    <Promise />
+    <Craft />
+    <Pricing />
+    <Faq />
+    <section className="border-t border-border px-5 py-24 text-center md:py-32"><div className="mx-auto max-w-3xl"><h2 className="font-serif text-5xl leading-tight sm:text-7xl">Your book is already written.<br /><span className="italic text-primary">Now give it a finished interior.</span></h2><div className="mt-10"><PrimaryLink>Start your book</PrimaryLink></div><p className="mt-5 text-xs text-muted-foreground">Free preview · $29 (≈ ₹2,450) when you're ready</p></div></section>
+    <LandingFooter /><MobileAction />
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{
+        __html: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "SoftwareApplication",
+          name: "Racana",
+          applicationCategory: "DesignApplication",
+          operatingSystem: "Web",
+          description: "Book interior typesetting for independent authors.",
+          offers: { "@type": "Offer", price: "29", priceCurrency: "USD" },
+        }),
+      }}
+    />
+  </main>;
+}
+
+function BeforeAfter() { return <section className="px-5 py-24 md:px-10 md:py-32 lg:px-16"><div className="mx-auto grid max-w-[1312px] gap-16 lg:grid-cols-[0.8fr_1.2fr] lg:items-center"><div><p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">Before / after</p><h2 className="mt-4 font-serif text-5xl sm:text-6xl">You write the book.<br /><span className="italic text-primary">We handle the page.</span></h2><p className="mt-7 max-w-md leading-7 text-muted-foreground">Racana handles the details readers never think about, so you can spend your time writing the next book.</p><div className="mt-9 grid grid-cols-2 gap-3 border-t border-border pt-6 text-sm">{["Trim size", "Margins & gutter", "Chapter openings", "Running heads", "Paragraph rhythm", "Page breaks", "Typography", "Folios"].map((x) => <span key={x} className="flex items-center gap-2"><Check className="size-3.5 text-primary" />{x}</span>)}</div></div><div className="grid grid-cols-2 items-end gap-4 sm:gap-8"><div><p className="mb-3 text-[9px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Draft manuscript</p><ManuscriptPage compact /></div><div className="translate-y-6"><p className="mb-3 text-[9px] font-semibold uppercase tracking-[0.2em] text-primary">Finished interior</p><ManuscriptPage finished compact /></div></div></div></section>; }
+function Promise() { return <section className="border-y border-border bg-paper-deep/45"><div className="mx-auto grid max-w-[1440px] lg:grid-cols-2"><div className="px-5 py-24 md:px-16 lg:border-r lg:border-border lg:px-24 lg:py-32"><p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">The authorship promise</p><h2 className="mt-5 font-serif text-5xl sm:text-6xl">Your words stay yours.</h2><div className="mt-8 space-y-2 leading-7 text-muted-foreground"><p>Racana does not rewrite your manuscript.</p><p>We don't polish your sentences.<br />We don't change your voice.<br />We don't summarize your chapters.</p><p className="pt-3 font-semibold text-foreground">We format what you wrote.</p></div></div><div className="flex items-center px-5 py-24 md:px-16 lg:px-24"><blockquote className="font-serif text-4xl leading-tight sm:text-5xl">“Your manuscript goes in. The same manuscript comes out — <span className="italic text-primary">given a finished physical form.</span>”</blockquote></div></div></section>; }
+function Craft() { return <section className="px-5 py-24 md:px-10 md:py-32 lg:px-16"><div className="mx-auto max-w-[1312px]"><div className="grid gap-16 lg:grid-cols-2"><div><p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">Quiet craft</p><h2 className="mt-4 font-serif text-5xl sm:text-6xl">The details are the work.</h2></div><div className="max-w-xl leading-8 text-muted-foreground"><p>A professional book interior is mostly invisible when it's done well.</p><p className="mt-5">The gutter has enough room for binding. Chapter openings fall where they should. Headings have hierarchy. Paragraphs breathe. Page numbers sit quietly where they belong.</p><p className="mt-5 font-semibold text-foreground">Racana handles those decisions automatically.</p></div></div><div className="mt-20 border-t border-border pt-14"><p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">Print dimensions</p><div className="mt-4 grid gap-10 lg:grid-cols-[1fr_1.2fr]"><div><h2 className="font-serif text-5xl">Made for the physical book.</h2><p className="mt-6 max-w-md text-sm leading-6 text-muted-foreground">Choose your trim size. Racana prepares the interior PDF around the dimensions you need.</p></div><div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4">{[["5 × 8\"", "Fiction"], ["5.5 × 8.5\"", "Trade"], ["6 × 9\"", "Standard"], ["8.5 × 11\"", "Large format"]].map(([s,u]) => <div key={s} className="bg-background px-5 py-8"><span className="font-serif text-2xl">{s}</span><span className="mt-2 block text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{u}</span></div>)}</div></div><p className="mt-8 text-xs text-muted-foreground">Cover files are separate. Racana prepares the interior pages.</p></div></div></section>; }
+function Pricing() { return <section id="pricing" className="bg-primary px-5 py-24 text-primary-foreground md:px-10 md:py-32 lg:px-16"><div className="mx-auto grid max-w-5xl gap-14 lg:grid-cols-2 lg:items-center"><div><p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-accent">Simple pricing</p><h2 className="mt-4 font-serif text-6xl sm:text-7xl">One book.<br />One price.</h2><div className="mt-9 flex items-baseline gap-3"><span className="font-serif text-8xl">$29</span><span className="text-sm text-primary-foreground/65">per interior · ≈ ₹2,450</span></div></div><div className="border-primary-foreground/25 lg:border-l lg:pl-14"><ul className="space-y-4 text-sm">{["Full print-ready interior PDF", "All six book styles", "All available trim sizes", "Automated quality checks", "Unlimited downloads of your finished file", "Re-generation after manuscript corrections"].map((x) => <li key={x} className="flex gap-3"><Check className="size-4 text-accent" />{x}</li>)}</ul><Link href="/upload" className="mt-9 inline-flex min-h-12 items-center gap-3 rounded-sm bg-primary-foreground px-6 text-sm font-semibold text-primary">Start your book <ArrowRight className="size-4" /></Link><p className="mt-5 text-xs leading-5 text-primary-foreground/65">Preview before you pay. No subscription required.<br />Prepared for KDP print specifications.</p></div></div></section>; }
+function Faq() { return <section className="px-5 py-24 md:px-10 md:py-32"><div className="mx-auto max-w-4xl"><p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">FAQ</p><h2 className="mt-4 font-serif text-5xl sm:text-6xl">Questions authors usually ask.</h2><div className="mt-14 border-t border-border">{faqs.map(([q,a]) => <details key={q} className="group border-b border-border"><summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-6 font-semibold"><span>{q}</span><ChevronDown className="size-4 transition-transform group-open:rotate-180" /></summary><p className="max-w-2xl pb-6 text-sm leading-6 text-muted-foreground">{a}</p></details>)}</div></div></section>; }
+function LandingFooter() { return <footer className="bg-foreground px-5 py-16 text-background md:px-10 lg:px-16"><div className="mx-auto max-w-[1312px]"><div className="grid gap-12 border-b border-background/20 pb-14 md:grid-cols-[2fr_1fr_1fr_1fr]"><div><p className="font-serif text-3xl tracking-[0.14em]">RACANA</p><p className="mt-4 text-sm text-background/60">The 2-Minute Book Interior Publisher.</p></div>{[["Product", ["Books", "Templates", "Pricing", "How it works"]], ["Company", ["About", "Contact"]], ["Help", ["FAQ", "Privacy", "Terms"]]].map(([h,ls]) => <div key={h as string}><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-background/50">{h}</p><div className="mt-4 flex flex-col gap-3 text-sm">{(ls as string[]).map((l) => <a key={l} href={l === "Pricing" ? "#pricing" : l === "Templates" ? "#styles" : l === "How it works" || l === "FAQ" ? "#how" : l === "Privacy" ? "/privacy" : l === "Terms" ? "/terms" : "#top"}>{l}</a>)}</div></div>)}</div><div className="flex flex-col justify-between gap-3 pt-6 text-xs text-background/50 sm:flex-row"><span>© 2026 Racana Studio.</span><span>Your manuscript in. Your finished book out.</span></div></div></footer>; }

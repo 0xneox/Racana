@@ -1,13 +1,42 @@
 import type { Metadata } from "next";
+import { Playfair_Display, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
+
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-playfair",
+  display: "swap",
+});
+
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  variable: "--font-jakarta",
+  display: "swap",
+});
+
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://racana.studio";
 
 export const metadata: Metadata = {
-  title: "Manuscript In, Book Out — Zero-Technical Interior Book Typesetting",
+  metadataBase: new URL(appUrl),
+  title: "Racana",
   description:
-    "Upload your manuscript. Choose a style. We make the book. Instant, print-ready bookstore quality PDF interiors without margin or gutter math.",
+    "Professional book interior typesetting for independent authors.",
+  authors: [{ name: "Racana Studio" }],
+  openGraph: {
+    siteName: "Racana",
+    title: "Racana",
+    description:
+      "Professional book interior typesetting for independent authors.",
+    type: "website",
+    url: appUrl,
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
 };
+
+const umamiSrc = process.env.NEXT_PUBLIC_UMAMI_SRC;
+const umamiWebsiteId = process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID;
 
 export default function RootLayout({
   children,
@@ -15,11 +44,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="h-full">
-      <body className="flex flex-col min-h-full font-sans antialiased selection:bg-[#EFE8DE] selection:text-[#1C1917]">
-        <Header />
-        <main className="flex-grow">{children}</main>
-        <Footer />
+    <html
+      lang="en"
+      className={`h-full ${playfair.variable} ${jakarta.variable}`}
+    >
+      <body className="min-h-full font-sans antialiased">
+        {umamiSrc && umamiWebsiteId && (
+          <script
+            defer
+            src={umamiSrc}
+            data-website-id={umamiWebsiteId}
+          />
+        )}
+        {children}
       </body>
     </html>
   );

@@ -3,8 +3,21 @@ import modernDef from "./definitions/modern.json";
 import philosophyDef from "./definitions/philosophy.json";
 import academicDef from "./definitions/academic.json";
 import literaryDef from "./definitions/literary.json";
+import indianDef from "./definitions/indian.json";
 
-export type TemplateKey = "classic" | "modern" | "philosophy" | "academic" | "literary";
+export type TemplateKey = "classic" | "modern" | "philosophy" | "academic" | "literary" | "indian";
+
+// Fonts physically embedded in src/lib/renderer/fonts — anything else would
+// fail the Typst compile, so settings outside this set are ignored.
+export const EMBEDDED_FONT_FAMILIES = new Set([
+  "EB Garamond",
+  "Libre Baskerville",
+  "Source Serif 4",
+  "Source Sans 3",
+  "Noto Serif Devanagari",
+  "Noto Serif Malayalam",
+  "Noto Serif Tamil",
+]);
 
 export const TEMPLATE_KEYS: TemplateKey[] = [
   "classic",
@@ -12,6 +25,7 @@ export const TEMPLATE_KEYS: TemplateKey[] = [
   "philosophy",
   "academic",
   "literary",
+  "indian",
 ];
 
 export interface TrimDefaults {
@@ -131,6 +145,7 @@ export function normalizeTrimSize(trim: string | undefined | null): string {
 }
 
 const TEMPLATE_REGISTRY: Record<TemplateKey, TemplateDefinition> = {
+  indian: indianDef as unknown as TemplateDefinition,
   classic: classicDef as unknown as TemplateDefinition,
   modern: modernDef as unknown as TemplateDefinition,
   philosophy: philosophyDef as unknown as TemplateDefinition,
@@ -183,10 +198,10 @@ export function getEffectiveSettings(
   const fontsEmbed: FontEmbedEntry[] = deepClone(base.fontsEmbed);
 
   if (settingsRow) {
-    if (isNotNull(settingsRow.fontBody)) {
+    if (isNotNull(settingsRow.fontBody) && EMBEDDED_FONT_FAMILIES.has(settingsRow.fontBody)) {
       body.fontFamily = settingsRow.fontBody;
     }
-    if (isNotNull(settingsRow.fontHeading)) {
+    if (isNotNull(settingsRow.fontHeading) && EMBEDDED_FONT_FAMILIES.has(settingsRow.fontHeading)) {
       heading.fontFamily = settingsRow.fontHeading;
     }
     if (isNotNull(settingsRow.fontSizePt)) {

@@ -2,12 +2,24 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import prisma from "../src/lib/db";
 import { processBookJob, CHECKLIST_STEPS } from "../src/lib/queue/worker";
 import { BookType, JobStatus, TemplateKey, TrimSize } from "@prisma/client";
-import { getFromStorage } from "../src/lib/storage/s3";
+import { getFromStorage, uploadToStorage } from "../src/lib/storage/s3";
+import fs from "fs";
+import path from "path";
 
 describe("User Journey E2E Flow Test", () => {
   let testJobId: string;
+  const fixturePath = path.join(__dirname, "fixtures", "novel_chapters.docx");
+  const fixtureBuffer = fs.readFileSync(fixturePath);
 
   beforeAll(async () => {
+    // Place the real fixture manuscript in storage so the analyzer reads actual bytes
+    await uploadToStorage(
+      "uploads/test/novel_chapters.docx",
+      fixtureBuffer,
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "manuscripts"
+    );
+
     // Create test user and initial uploaded book job
     const user = await prisma.user.create({
       data: {
@@ -26,10 +38,10 @@ describe("User Journey E2E Flow Test", () => {
         trimSize: TrimSize.trim_6x9,
         manuscriptAsset: {
           create: {
-            fileName: "The_Great_Gatsby_Draft.docx",
-            fileSizeBytes: 124500,
+            fileName: "novel_chapters.docx",
+            fileSizeBytes: fixtureBuffer.length,
             mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            s3Key: "uploads/test/The_Great_Gatsby_Draft.docx",
+            s3Key: "uploads/test/novel_chapters.docx",
             s3Bucket: "manuscripts",
             pageCountEstimate: 140,
             wordCountEstimate: 47000,
@@ -61,7 +73,7 @@ describe("User Journey E2E Flow Test", () => {
     });
 
     expect(job).toBeDefined();
-    expect(job?.manuscriptAsset?.fileName).toBe("The_Great_Gatsby_Draft.docx");
+    expect(job?.manuscriptAsset?.fileName).toBe("novel_chapters.docx");
 
     // Simulate user choosing Philosophy template on /templates
     await prisma.templateChoice.update({
@@ -103,7 +115,7 @@ describe("User Journey E2E Flow Test", () => {
     expect(updated?.settings?.chapterOpenRecto).toBe(true);
   });
 
-  it("Step 4: Should execute worker pipeline through all 8 checklist steps to ready state", async () => {
+  it("Step 4: Should execute worker pipeline through all 8 checklist steps to ready state", { timeout: 120000 }, async () => {
     // Run worker process for the test job (fast mode: 20ms per step)
     await processBookJob(testJobId, 20);
 
@@ -118,11 +130,11 @@ describe("User Journey E2E Flow Test", () => {
 
     expect(completedJob?.status).toBe(JobStatus.ready);
     expect(completedJob?.progress).toBe(100);
-    expect(completedJob?.currentStep).toBe("Final PDF generated");
+    expect(completedJob?.currentStep).toBe("Book ready");
 
-    // Verify structure detection
+    // Verify real structure detection on the fixture (3 real chapters, not a stub)
     expect(completedJob?.structureJson).toBeDefined();
-    expect(completedJob?.structureJson?.chapterCount).toBe(12);
+    expect(completedJob?.structureJson?.chapterCount).toBe(3);
 
     // Verify QA report
     expect(completedJob?.qaReports.length).toBeGreaterThan(0);
@@ -138,7 +150,7 @@ describe("User Journey E2E Flow Test", () => {
     expect(interiorPdf?.s3Bucket).toBe("artifacts");
   });
 
-  it("Step 5: Should retrieve generated PDF from storage and verify PDF/X integrity", async () => {
+  it("Step 5: Should retrieve generated PDF from storage and verify PDF integrity", { timeout: 60000 }, async () => {
     const job = await prisma.bookJob.findUnique({
       where: { id: testJobId },
       include: { artifacts: true },
