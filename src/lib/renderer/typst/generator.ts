@@ -6,8 +6,15 @@ import { hasKnownImageMagic } from "../image-check";
 export type { EmbeddedImage } from "../types";
 
 function escapeTypst(text: string): string {
+  // Strip non-printable / binary bytes before escaping. PDF and DOCX
+  // extraction can occasionally leak raw binary (compressed streams, font
+  // tables) into block text; if that reaches Typst it produces "unclosed
+  // delimiter" / "unclosed raw text" compile errors. Keep tab, newline,
+  // carriage return, and form feed (page-break marker).
+  const cleaned = (typeof text === "string" ? text : String(text ?? ""))
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
   // Escape Typst markup-active characters in body content
-  return text
+  return cleaned
     .replace(/\\/g, '\\\\')
     .replace(/#/g, '\\#')
     .replace(/\$/g, '\\$')
@@ -17,7 +24,8 @@ function escapeTypst(text: string): string {
     .replace(/\[/g, '\\[')
     .replace(/\]/g, '\\]')
     .replace(/@/g, '\\@')
-    .replace(/</g, '\\<');
+    .replace(/</g, '\\<')
+    .replace(/`/g, '\\`');
 }
 
 // Escape for use inside a Typst "..." string literal (template arguments)
@@ -72,10 +80,14 @@ function convertBlock(block: Block, images: EmbeddedImage[]): string {
     case "table":
       if (!block.rows || block.rows.length === 0) return "";
       const cols = block.rows[0].cells.length;
+      if (cols === 0) return "";
+      // Validate all rows have the same cell count — a mismatch crashes Typst.
+      // Pad short rows with empty cells, truncate long rows.
       let typstTable = `#table(\n  columns: ${cols},\n`;
       for (const row of block.rows) {
-        for (const cell of row.cells) {
-          typstTable += `  [${escapeTypst(cell.text)}],\n`;
+        for (let i = 0; i < cols; i++) {
+          const cell = row.cells[i];
+          typstTable += `  [${escapeTypst(cell?.text || "")}],\n`;
         }
       }
       typstTable += `)\n\n`;
@@ -122,9 +134,9 @@ function convertBlock(block: Block, images: EmbeddedImage[]): string {
   columns: (auto, 1fr, auto),
   column-gutter: 0.3em,
   align: (left, center, right),
-  [#label],
+  [${label}],
   line(length: 100%, stroke: (paint: rgb("#8a8178"), thickness: 0.4pt, dash: "dotted")),
-  [#text[#page]],
+  [#text[${page}]],
 )]\n`;
     }
 
@@ -152,14 +164,20 @@ function convertBlock(block: Block, images: EmbeddedImage[]): string {
     // --- Epigraph: centered blockquote with attribution (#2, #5) -----------
     case "epigraph": {
       const quote = escapeTypst(block.text || "");
-      const attr = block.attribution ? escapeTypst(block.attribution) : "";
+      const attr = block.attribution ? block.attribution.trim() : "";
+      if (attr) {
+        const attrEscaped = escapeTypst(attr);
+        return `#align(center)[
+  #block(inset: (x: 2em))[
+    #text(style: "italic")[${quote}]
+    #v(0.3em)
+    #text(size: 0.9em)[— ${attrEscaped}]
+  ]
+]\n\n`;
+      }
       return `#align(center)[
   #block(inset: (x: 2em))[
     #text(style: "italic")[${quote}]
-    #if "${attr}" != "" [
-      #v(0.3em)
-      #text(size: 0.9em)[— ${attr}]
-    ]
   ]
 ]\n\n`;
     }
@@ -244,18 +262,68 @@ export function generateTypstSource(options: RendererOptions): { source: string;
   if (structure.subtitle) {
     source += `  subtitle: "${escapeTypstString(structure.subtitle)}",\n`;
   }
+  // Select fonts appropriate for the detected script.  The template's
+  // default font may not support the manuscript's script (e.g. EB Garamond
+  // can't render Malayalam glyphs).  We override with a script-appropriate
+  // Noto family when needed; the font must also be in `fontsEmbed`.
+  const scriptToFont: Record<string, { body: string; heading: string }> = {
+    devanagari: { body: "Noto Serif Devanagari", heading: "Noto Serif Devanagari" },
+    malayalam: { body: "Noto Serif Malayalam", heading: "Noto Serif Malayalam" },
+    tamil: { body: "Noto Serif Tamil", heading: "Noto Serif Tamil" },
+  };
+  const scriptFont = scriptToFont[structure.detectedScript || ""];
+  const bodyFontName = scriptFont?.body || settings.body.fontFamily || "EB Garamond";
+  const headingFontName = scriptFont?.heading || settings.heading.fontFamily || "EB Garamond";
+
   source += `  trimSize: "${settings.trimSize}",\n`;
   source += `  margins: (inside: ${settings.margins.insideMm}mm, outside: ${settings.margins.outsideMm}mm, top: ${settings.margins.topMm}mm, bottom: ${settings.margins.bottomMm}mm),\n`;
-  source += `  bodyFont: ${typstFontList(settings.body.fontFamily || "EB Garamond")},\n`;
+  source += `  bodyFont: ${typstFontList(bodyFontName)},\n`;
   source += `  bodySize: ${settings.body.fontSizePt}pt,\n`;
   source += `  leading: ${settings.body.leadingEm}em,\n`;
-  source += `  headingFont: ${typstFontList(settings.heading.fontFamily || "EB Garamond")},\n`;
+  source += `  headingFont: ${typstFontList(headingFontName)},\n`;
   source += `  h1Size: ${settings.heading.h1SizePt}pt,\n`;
   source += `  h2Size: ${settings.heading.h2SizePt}pt,\n`;
   source += `  h3Size: ${settings.heading.h3SizePt}pt,\n`;
   source += `  chapterOpenRecto: ${settings.layout.chapterOpenRecto ? "true" : "false"},\n`;
   source += `  runningHeaders: ${settings.layout.runningHeaders ? "true" : "false"},\n`;
   source += `  pageNumbers: "${escapeTypstString(settings.layout.pageNumbersPosition)}",\n`;
+  // Only emit non-default parameters — pass-through templates use `..args`
+  // which doesn't forward named args in Typst 0.11's `.with()` calls.
+  const bleedMm = settings.layout.bleedEnabled ? (settings.layout.bleedMm || 3.175) : 0;
+  if (bleedMm > 0) {
+    source += `  bleedMm: ${bleedMm},\n`;
+  }
+  if (settings.body.firstLineIndentMm !== undefined && settings.body.firstLineIndentMm !== 4.23) {
+    source += `  firstLineIndentMm: ${settings.body.firstLineIndentMm},\n`;
+  }
+  if (settings.body.paragraphSpacingMm !== undefined && settings.body.paragraphSpacingMm !== 0) {
+    source += `  paragraphSpacingMm: ${settings.body.paragraphSpacingMm},\n`;
+  }
+  if (settings.layout.runningHeaderFormat && settings.layout.runningHeaderFormat !== "title_author") {
+    source += `  runningHeaderFormat: "${escapeTypstString(settings.layout.runningHeaderFormat)}",\n`;
+  }
+  if (settings.layout.orphanWidowTarget !== undefined && settings.layout.orphanWidowTarget !== 2) {
+    source += `  orphanWidowTarget: ${settings.layout.orphanWidowTarget},\n`;
+  }
+  // Map the detected manuscript script to a Typst language code for correct
+  // hyphenation and accessibility metadata.  Only emitted when non-default
+  // ("en") so pass-through templates that use ..args don't see an unexpected
+  // named parameter.
+  const scriptToLang: Record<string, string> = {
+    devanagari: "hi",
+    tamil: "ta",
+    malayalam: "ml",
+    bengali: "bn",
+    gujarati: "gu",
+    kannada: "kn",
+    telugu: "te",
+    gurmukhi: "pa",
+    odia: "or",
+  };
+  const textLang = scriptToLang[structure.detectedScript || ""] || "en";
+  if (textLang !== "en") {
+    source += `  textLang: "${textLang}",\n`;
+  }
   source += `  showColophon: true,\n`;
   source += `)\n\n`;
 
@@ -283,8 +351,21 @@ export function generateTypstSource(options: RendererOptions): { source: string;
         continue;
       }
 
+      // Epigraphs: render on a fresh page but DON'T force recto.  Multiple
+      // epigraphs each get their own page (they're short), but without the
+      // `to: "odd"` constraint that would insert a blank even page between
+      // every pair of epigraphs.  Only major sections (copyright, ToC,
+      // preface, first chapter) need recto openings.
+      if (fm.type === "epigraph") {
+        source += `#pagebreak(weak: true)\n`;
+        for (const block of fm.blocks) {
+          source += convertBlock(block, images);
+        }
+        continue;
+      }
+
       // Other front-matter sections (note, preface, etc.) get a centered
-      // heading and start on a fresh page.
+      // heading and start on a fresh recto page.
       if (fm.title) {
         source += `#pagebreak(to: "odd", weak: true)\n`;
         source += `#v(1in)\n`;
@@ -312,9 +393,11 @@ export function generateTypstSource(options: RendererOptions): { source: string;
         const eyebrow = chapterEyebrow(ch.title);
         const cleanTitle = eyebrow ? stripOrdinal(ch.title) : ch.title;
         if (eyebrow) {
-          // Emit the eyebrow as a small-caps line above the heading.  We use
-          // a raw block (not a heading) so it doesn't trigger the heading
+          // Emit the eyebrow as a small-caps line above the chapter heading.
+          // A paragraph (not heading) so it doesn't trigger the heading
           // show rule's page break twice.
+          source += `#align(center)[#text(size: 10pt, weight: "regular", tracking: 0.15em)[#smallcaps[${escapeTypst(eyebrow)}]]]\n`;
+          source += `#v(0.3in)\n`;
           source += `= ${escapeTypst(cleanTitle)}\n\n`;
         } else {
           source += `= ${escapeTypst(ch.title)}\n\n`;

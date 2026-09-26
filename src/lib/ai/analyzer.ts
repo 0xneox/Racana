@@ -353,13 +353,33 @@ function splitFrontMatter(
     entries.push({ type: "title_page", title: "", blocks: titlePageBlocks });
   }
 
-  // Copyright page: collect blocks until the next epigraph or heading.
+  // Copyright page: collect blocks until the next epigraph, heading, or
+  // epigraph-like paragraph.  Mammoth doesn't always tag italic quotes as
+  // <blockquote>, so epigraphs often arrive as plain paragraphs starting
+  // with a quotation mark.  Without this stop condition, epigraphs get
+  // absorbed into the copyright block and render as one mashed paragraph.
+  // With pdfjs extraction, the "Copyright ©" line can arrive as a
+  // heading_h3 — treat a heading that itself contains the copyright marker
+  // as part of the copyright block rather than a section boundary.
   if (i < blocks.length && /copyright|©|all rights reserved/i.test(blocks[i].text || "")) {
     const copyBlocks: Block[] = [];
     while (i < blocks.length) {
       const b = blocks[i];
       if (b.type === "quote") break;
-      if (b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3") break;
+      const t = (b.text || "").trim();
+      const isHeading = b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3";
+      // A heading containing the copyright marker is the copyright page's
+      // own title ("Copyright © Binary Bodhi") — keep it.  Any other
+      // heading starts a new section.
+      if (isHeading && copyBlocks.length > 0) break;
+      if (isHeading && !/copyright|©|all rights reserved/i.test(t)) break;
+      // Stop at epigraph-like paragraphs: a short paragraph that starts
+      // with a quotation mark, or a paragraph that looks like an
+      // attribution line ("— Source").
+      if (b.type === "paragraph" && copyBlocks.length > 0) {
+        if (/^[\u201C\u201D"'\u2018\u2019]/.test(t) && t.length < 300) break;
+        if (/^[\u2014\u2013\-–—]/.test(t) && t.length < 80) break;
+      }
       copyBlocks.push(b);
       i++;
     }
@@ -403,8 +423,11 @@ function splitFrontMatter(
       continue;
     }
 
-    // Epigraph: a quote followed by an attribution line.
-    if (b.type === "quote") {
+    // Epigraph: a quote (or epigraph-like paragraph) followed by an
+    // attribution line.  Mammoth doesn't always tag italic quotes as
+    // <blockquote>, so we also detect paragraphs that start with a
+    // quotation mark and are followed by an attribution ("— Source").
+    if (b.type === "quote" || (b.type === "paragraph" && /^[\u201C\u201D"'\u2018\u2019]/.test(t) && t.length < 300)) {
       const quoteText = (b.text || "").trim();
       let attribution = "";
       // The next block is often the attribution ("— Source").
@@ -434,6 +457,12 @@ function splitFrontMatter(
         const sb = blocks[i];
         if (sb.type === "heading_h1" || sb.type === "heading_h2" || sb.type === "heading_h3") break;
         if (/^(table of contents|contents)$/i.test((sb.text || "").trim())) break;
+        // Epigraph-like content (quotes, quoted paragraphs) following a
+        // section heading is its own entry — don't absorb it into the
+        // section body.
+        if (sb.type === "quote") break;
+        const st = (sb.text || "").trim();
+        if (sb.type === "paragraph" && /^[\u201C\u201D"'\u2018\u2019]/.test(st) && st.length < 300) break;
         sectionBlocks.push(sb);
         i++;
       }
@@ -933,6 +962,14 @@ export async function analyzeManuscript(
     const result = await parsePdf(buffer);
     blocks = result.blocks;
     rawText = result.rawText;
+    // pdf-parse can fail silently on scanned/image-only or malformed PDFs and
+    // return empty text. Surfacing this here prevents a silent empty book (or
+    // worse, a corrupt render) downstream.
+    if (!rawText.trim() && blocks.length === 0) {
+      throw new Error(
+        "Couldn't extract any text from this PDF. It may be a scanned/image-only PDF or use an unsupported encoding. Try uploading a text-based PDF or a .docx file."
+      );
+    }
   } else {
     rawText = buffer.toString("utf8");
     const paragraphs = rawText.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
@@ -983,7 +1020,24 @@ export async function analyzeManuscript(
         }
       }
     } else {
-      frontMatterBlocks.push(...blocks);
+      // No heading_h1 blocks at all — completely unstructured document
+      // (e.g. a Malayalam or other non-English DOCX with only paragraphs).
+      // Treat the entire document as a single chapter rather than dumping
+      // everything into frontMatter, which would produce a book with only
+      // a title page and no body content.
+      if (blocks.length > 0) {
+        // Use the detected document title as the chapter name for
+        // completely unstructured docs — "Chapter 1" is meaningless when
+        // the doc has no real chapter structure.
+        chapterMatches.push({
+          blockIndex: 0,
+          chapterNumber: 1,
+          rawTitle: meta.title || "Chapter 1",
+          headingType: "paragraph",
+        });
+      } else {
+        frontMatterBlocks.push(...blocks);
+      }
     }
   }
 

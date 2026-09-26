@@ -80,6 +80,89 @@
   .page-breathe { animation: page-breathe 7s ease-in-out infinite; }
 }
 
+/* --- Animated multilingual brand logo ---------------------------------- */
+/* Real HTML text (not image/canvas/SVG) cycling through Indic scripts.
+   The container carries role="img" aria-label="Racana" for accessibility;
+   the animated span is aria-hidden. The page's single <h1> is the marketing
+   headline below. Each script gets its own Noto Serif family so the
+   proportions look designed, not browser-fallback. */
+.brand-word {
+  font-family: var(--font-playfair), serif;
+  font-size: clamp(4.6rem, 14.2vw, 13rem);
+  font-weight: 900;
+  line-height: 0.72;
+  letter-spacing: -0.045em;
+  text-align: left;
+  margin: 0;
+}
+
+.brand-language {
+  display: inline-block;
+}
+
+/* Per-script font families — each Indic script has different proportions,
+   so a single font-size would make some look too small or too large. */
+.brand-lang-devanagari {
+  font-family: "Noto Serif Devanagari", serif;
+  font-weight: 700;
+}
+.brand-lang-malayalam {
+  font-family: "Noto Serif Malayalam", serif;
+  font-weight: 700;
+}
+.brand-lang-kannada {
+  font-family: "Noto Serif Kannada", serif;
+  font-weight: 700;
+}
+.brand-lang-telugu {
+  font-family: "Noto Serif Telugu", serif;
+  font-weight: 700;
+}
+.brand-lang-bengali {
+  font-family: "Noto Serif Bengali", serif;
+  font-weight: 700;
+}
+.brand-lang-gujarati {
+  font-family: "Noto Serif Gujarati", serif;
+  font-weight: 700;
+}
+.brand-lang-gurmukhi {
+  font-family: "Noto Serif Gurmukhi", serif;
+  font-weight: 700;
+}
+.brand-lang-tamil {
+  font-family: "Noto Serif Tamil", serif;
+  font-weight: 700;
+}
+
+/* Slow, elegant cross-fade with a tiny vertical movement — not a flashy
+   typewriter. The span is keyed by index in React so it remounts on each
+   change, re-triggering this entrance animation. */
+@media (prefers-reduced-motion: no-preference) {
+  .brand-language {
+    animation: brand-crossfade 2.8s ease-in-out;
+  }
+}
+
+@keyframes brand-crossfade {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0.85;
+    transform: translateY(-4px);
+  }
+}
+
 @media (max-width: 767px) {
   .mobile-safe { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
 }

@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     const identity = await requireIdentity();
 
     const ip = getClientIp(request);
-    const limit = rateLimit(`email:ip:${ip}`, 10, 60 * 60 * 1000);
+    const limit = await rateLimit(`email:ip:${ip}`, 10, 60 * 60 * 1000);
     if (!limit.allowed) {
       return NextResponse.json(
         { error: "Too many emails requested. Please try again later." },
@@ -20,7 +20,10 @@ export async function POST(request: NextRequest) {
 
     const { jobId, email } = await request.json();
 
-    if (!email || !email.includes("@")) {
+    // Validate email with a real regex — `.includes("@")` accepts "a@b" and
+    // even strings with multiple @ signs.
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(String(email))) {
       return NextResponse.json(
         { error: "A valid email address is required." },
         { status: 400 }
@@ -57,15 +60,19 @@ export async function POST(request: NextRequest) {
         .catch(() => {});
     }
 
-    const bookTitle = job.manuscriptAsset?.fileName.replace(/\.[^/.]+$/, "") || "Your Manuscript";
+    const rawTitle = job.manuscriptAsset?.fileName.replace(/\.[^/.]+$/, "") || "Your Manuscript";
+    // Strip all HTML-special chars entirely for the title shown in email —
+    // it's a filename, not rich text.  This prevents HTML injection via
+    // malicious filenames like "<img onerror=...>.docx".
+    const safeTitle = rawTitle.replace(/[<>&"']/g, "");
     const downloadLink = `${getAppUrl()}/ready?jobId=${jobId}`;
-    const subject = `Your print-ready book interior: ${bookTitle}`;
-    const text = `Hello!\n\nYour manuscript "${bookTitle}" has been rendered into a print-ready PDF. Download it here: ${downloadLink}\n\nThanks for using Racana!`;
+    const subject = `Your print-ready book interior: ${safeTitle}`;
+    const text = `Hello!\n\nYour manuscript "${safeTitle}" has been rendered into a print-ready PDF. Download it here: ${downloadLink}\n\nThanks for using Racana!`;
     const html = `
       <div style="font-family: Georgia, serif; padding: 24px; color: #222;">
         <h2 style="color: #4a3f35;">Your Book Interior Is Ready</h2>
         <p>Hello,</p>
-        <p>Your manuscript <strong>${bookTitle}</strong> has been successfully rendered into a print-ready PDF.</p>
+        <p>Your manuscript <strong>${safeTitle}</strong> has been successfully rendered into a print-ready PDF.</p>
         <p><a href="${downloadLink}" style="color:#A34825;">Download your finished book</a></p>
         <p style="margin-top: 32px; color: #888; font-size: 12px;">Racana &middot; racana.studio &middot; Your manuscript in. Your finished book out.</p>
       </div>

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Playfair_Display, Plus_Jakarta_Sans } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
 import "./globals.css";
 
 const playfair = Playfair_Display({
@@ -38,16 +40,38 @@ export const metadata: Metadata = {
 const umamiSrc = process.env.NEXT_PUBLIC_UMAMI_SRC;
 const umamiWebsiteId = process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
     <html
-      lang="en"
+      lang={locale}
       className={`h-full ${playfair.variable} ${jakarta.variable}`}
     >
+      <head>
+        {/* Indic script fonts for the animated multilingual brand logo.
+            Google Fonts serves these with unicode-range subsetting, so the
+            browser only downloads font files for scripts actually rendered
+            on the page — no performance cost until the animation needs them. */}
+        <link
+          rel="preconnect"
+          href="https://fonts.googleapis.com"
+        />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Noto+Serif+Devanagari:wght@400;700&family=Noto+Serif+Malayalam:wght@400;700&family=Noto+Serif+Tamil:wght@400;700&family=Noto+Serif+Bengali:wght@400;700&family=Noto+Serif+Gujarati:wght@400;700&family=Noto+Serif+Kannada:wght@400;700&family=Noto+Serif+Telugu:wght@400;700&family=Noto+Serif+Gurmukhi:wght@400;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body className="min-h-full font-sans antialiased">
         {umamiSrc && umamiWebsiteId && (
           <script
@@ -56,7 +80,9 @@ export default function RootLayout({
             data-website-id={umamiWebsiteId}
           />
         )}
-        {children}
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          {children}
+        </NextIntlClientProvider>
       </body>
     </html>
   );

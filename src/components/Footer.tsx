@@ -1,32 +1,35 @@
-const columns: [string, [string, string][]][] = [
-  [
-    "Product",
-    [
-      ["My Books", "/books"],
-      ["Templates", "/templates"],
-      ["Pricing", "/#pricing"],
-      ["How it works", "/#how"],
-    ],
-  ],
-  [
-    "Company",
-    [
-      ["About", "/"],
-      ["Contact", "mailto:books@racana.studio"],
-    ],
-  ],
-  [
-    "Help",
-    [
-      ["FAQ", "/#how"],
-      ["Privacy", "/privacy"],
-      ["Terms", "/terms"],
-      ["Status", "/api/health"],
-    ],
-  ],
-];
+import { useTranslations } from "next-intl";
 
 export function Footer() {
+  const t = useTranslations("Footer");
+  const th = useTranslations("Header");
+
+  const columns: [string, [string, string][]][] = [
+    [
+      t("product"),
+      [
+        [th("myBooks"), "/books"],
+        [t("styles"), "/#styles"],
+        [t("pricing"), "/#pricing"],
+        [t("howItWorks"), "/#how"],
+      ],
+    ],
+    [
+      t("company"),
+      [
+        [t("contact"), "mailto:books@racana.studio"],
+      ],
+    ],
+    [
+      t("help"),
+      [
+        [t("faq"), "/#faq"],
+        [t("privacy"), "/privacy"],
+        [t("terms"), "/terms"],
+      ],
+    ],
+  ];
+
   return (
     <footer className="bg-foreground px-5 py-16 text-background md:px-10 lg:px-16">
       <div className="mx-auto max-w-[1312px]">
@@ -34,7 +37,7 @@ export function Footer() {
           <div>
             <p className="font-serif text-3xl tracking-[0.14em]">RACANA</p>
             <p className="mt-4 text-sm text-background/60">
-              The 2-Minute Book Interior Publisher.
+              {t("tagline")}
             </p>
           </div>
           {columns.map(([heading, links]) => (
@@ -53,8 +56,8 @@ export function Footer() {
           ))}
         </div>
         <div className="flex flex-col justify-between gap-3 pt-6 text-xs text-background/50 sm:flex-row">
-          <span>© 2026 Racana Studio.</span>
-          <span>Your manuscript in. Your finished book out.</span>
+          <span>{t("copyright")}</span>
+          <span>{t("slogan")}</span>
         </div>
       </div>
     </footer>

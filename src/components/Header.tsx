@@ -4,17 +4,21 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, Menu, User, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 
-const navItems = [
-  { label: "Overview", href: "/" },
-  { label: "New Book", href: "/upload" },
-  { label: "My Books", href: "/books" },
-];
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 export function Header() {
+  const t = useTranslations('Header');
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<{ email: string; name?: string } | null>(null);
+
+  const navItems = [
+    { label: t('overview'), href: '/' },
+    { label: t('newBook'), href: '/upload' },
+    { label: t('myBooks'), href: '/books' },
+  ];
 
   useEffect(() => {
     fetch("/api/auth/session")
@@ -64,6 +68,7 @@ export function Header() {
         </nav>
 
         <div className="hidden items-center gap-5 md:flex">
+          <LanguageSwitcher />
           {user ? (
             <div className="flex items-center gap-4">
               <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
@@ -73,7 +78,7 @@ export function Header() {
               <button
                 onClick={handleSignOut}
                 className="flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-primary"
-                title="Sign Out"
+                title={t('signOut')}
               >
                 <LogOut className="size-3.5" />
               </button>
@@ -81,13 +86,13 @@ export function Header() {
           ) : (
             <>
               <Link className="text-sm font-medium" href="/auth/signin">
-                Sign in
+                {t('signIn')}
               </Link>
               <Link
                 className="rounded-sm border border-primary px-4 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
                 href="/upload"
               >
-                Start a book
+                {t('startBook')}
               </Link>
             </>
           )}
@@ -96,7 +101,7 @@ export function Header() {
         <button
           className="grid size-11 place-items-center md:hidden"
           onClick={() => setOpen((v) => !v)}
-          aria-label={open ? "Close menu" : "Open menu"}
+          aria-label={open ? t('closeMenu') : t('openMenu')}
         >
           {open ? <X className="size-5" /> : <Menu className="size-5" />}
         </button>
@@ -115,12 +120,15 @@ export function Header() {
                 {item.label}
               </Link>
             ))}
+            <div className="border-b border-border py-3">
+              <LanguageSwitcher />
+            </div>
             {user ? (
               <button
                 onClick={handleSignOut}
                 className="mt-4 rounded-sm border border-primary px-5 py-3 text-center text-sm font-semibold text-primary"
               >
-                Sign out
+                {t('signOut')}
               </button>
             ) : (
               <>
@@ -129,13 +137,13 @@ export function Header() {
                   onClick={() => setOpen(false)}
                   className="border-b border-border py-3"
                 >
-                  Sign in
+                  {t('signIn')}
                 </Link>
                 <Link
                   href="/upload"
                   className="mt-4 rounded-sm bg-primary px-5 py-3 text-center text-sm font-semibold text-primary-foreground"
                 >
-                  Start a book
+                  {t('startBook')}
                 </Link>
               </>
             )}

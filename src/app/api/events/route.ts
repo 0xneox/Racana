@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { decodeGuestToken, decodeSession, GUEST_COOKIE_NAME, SESSION_COOKIE_NAME } from "@/lib/auth";
+import { decodeGuestToken, GUEST_COOKIE_NAME, SESSION_COOKIE_NAME } from "@/lib/auth";
+import { verifySessionToken } from "@/lib/auth/session-store";
 import { logServerError } from "@/lib/auth-utils";
 
 // First-party funnel events — small allowlist so the table can't be spammed
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     // Identity is optional — attach when the caller has it.
     const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-    const user = sessionCookie ? await decodeSession(sessionCookie) : null;
+    const user = sessionCookie ? await verifySessionToken(sessionCookie) : null;
     const guestCookie = request.cookies.get(GUEST_COOKIE_NAME)?.value;
     const guestId = !user && guestCookie ? await decodeGuestToken(guestCookie) : null;
 

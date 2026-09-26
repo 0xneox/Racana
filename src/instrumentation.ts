@@ -19,4 +19,29 @@ export async function register() {
     const { assertProductionEnv } = await import("./lib/env-check");
     assertProductionEnv();
   }
+
+  // Reconcile orphaned jobs — jobs stuck in a non-terminal processing state
+  // (analyzing, typesetting, qa, fixing) because the process crashed mid-
+  // render. Reset them to `queued` so they can be re-enqueued, or `failed`
+  // if they've been stuck for over an hour (likely truly dead).
+  try {
+    const prisma = (await import("./lib/db")).default;
+    const stuckThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+    const result = await prisma.bookJob.updateMany({
+      where: {
+        status: { in: ["analyzing", "typesetting", "qa", "fixing"] },
+        updatedAt: { lt: stuckThreshold },
+      },
+      data: {
+        status: "failed",
+        errorMessage: "Processing was interrupted. Please try again.",
+        currentStep: "Processing interrupted",
+      },
+    });
+    if (result.count > 0) {
+      console.log(`[Startup] Reconciled ${result.count} orphaned jobs to 'failed'`);
+    }
+  } catch (err) {
+    console.warn("[Startup] Orphan reconciliation failed:", (err as Error).message);
+  }
 }

@@ -8,6 +8,33 @@ import { analyzeManuscript } from "../ai/analyzer";
 import { resolveAppRoot } from "../app-root";
 import type { BookStructureV1, Block } from "../manuscript/types";
 
+// Structured JSON logging for worker events.  Parseable by log aggregators
+// (Datadog, CloudWatch, etc.) and greppable in production.
+function logEvent(event: string, data: Record<string, unknown> = {}) {
+  const entry = {
+    ts: new Date().toISOString(),
+    level: "info",
+    source: "worker",
+    event,
+    ...data,
+  };
+  console.log(JSON.stringify(entry));
+}
+
+function logError(event: string, jobId: string, err: Error, data: Record<string, unknown> = {}) {
+  const entry = {
+    ts: new Date().toISOString(),
+    level: "error",
+    source: "worker",
+    event,
+    jobId,
+    error: err.message,
+    stack: err.stack?.split("\n").slice(0, 3).join("\n"),
+    ...data,
+  };
+  console.error(JSON.stringify(entry));
+}
+
 // Each step maps to real work done at that checkpoint — no placeholder stages.
 // The /create checklist UI mirrors these labels and progress values.
 export const CHECKLIST_STEPS = [
@@ -20,6 +47,12 @@ export const CHECKLIST_STEPS = [
   { step: "Final PDF generated", status: JobStatus.fixing, progress: 95 },
   { step: "Book ready", status: JobStatus.ready, progress: 100 },
 ];
+
+// Maximum time for a full render pipeline.  The Typst compile itself has a
+// 120s timeout in compiler.ts; this wraps the entire process (analysis +
+// generation + compile + QA + upload) so a stuck job can never hang the
+// worker indefinitely.
+const JOB_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
 // Runs manuscript analysis for a job and persists the detected structure.
 export async function runAnalysisForJob(jobId: string): Promise<boolean> {
@@ -89,7 +122,7 @@ export async function runAnalysisTask(jobId: string): Promise<void> {
       data: { status: JobStatus.structure_ready, currentStep: "Structure detected" },
     });
   } catch (err) {
-    console.error(`[Worker] Analysis task failed. Job=${jobId}, Reason=${(err as Error)?.message}`);
+    logError("analysis_failed", jobId, err as Error);
     await prisma.bookJob
       .update({
         where: { id: jobId },
@@ -101,6 +134,10 @@ export async function runAnalysisTask(jobId: string): Promise<void> {
         },
       })
       .catch(() => {});
+    // Rethrow so BullMQ sees the failure and can apply its retry policy.
+    // Without this, the error is swallowed and BullMQ thinks the job
+    // succeeded — `attempts: 2` never triggers.
+    throw err;
   }
 }
 
@@ -145,7 +182,28 @@ function hasRenderableContent(data: BookStructureV1): boolean {
 }
 
 export async function processBookJob(jobId: string, pacingMs = 0) {
-  console.log(`[Worker] Starting processing for Job ID: ${jobId}`);
+  logEvent("job_started", { jobId });
+
+  // Wrap the entire pipeline in a timeout so a stuck job can never hang
+  // the worker indefinitely.  The Typst compile itself has a 120s timeout
+  // in compiler.ts; this catches hangs in analysis, QA, or storage upload.
+  return Promise.race([
+    processBookJobInner(jobId, pacingMs),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("Job timed out after 15 minutes.")),
+        JOB_TIMEOUT_MS
+      )
+    ),
+  ]).catch((err) => {
+    // The inner function already calls fail() and rethrows.  If we get here
+    // it's either the timeout or a rethrown error — both have already been
+    // recorded in the DB.  Rethrow so BullMQ can apply its retry policy.
+    throw err;
+  });
+}
+
+async function processBookJobInner(jobId: string, pacingMs = 0) {
 
   const job = await prisma.bookJob.findUnique({
     where: { id: jobId },
@@ -320,10 +378,14 @@ export async function processBookJob(jobId: string, pacingMs = 0) {
 
     // 8. Book ready — artifact exists before this status is visible
     await mark(7);
-    console.log(`[Worker] Finished processing for Job ID: ${jobId} -> Status: ready`);
+    logEvent("job_completed", { jobId, pageCount: qaResult.pageCount });
   } catch (err) {
-    console.error(`[Worker] Processing failed for Job ID: ${jobId}`, err);
+    logError("job_failed", jobId, err as Error);
     await fail("Typesetting failed", `Typesetting failed: ${(err as Error).message}`);
+    // Rethrow so BullMQ sees the failure and can apply its retry policy.
+    // Without this, the error is swallowed and BullMQ thinks the job
+    // succeeded — `attempts: 2` never triggers.
+    throw err;
   }
 }
 
@@ -350,7 +412,8 @@ export function startEmbeddedWorker(): Worker | null {
       },
       { connection: redisConnection, concurrency: 2 }
     );
-    console.log("[Worker] Book-processing consumer started (queue: book-processing)");
+    console.log(`[Worker] Book-processing consumer started (queue: book-processing)`);
+    logEvent("worker_started", { concurrency: 2 });
   } catch (err) {
     console.warn("[BullMQ] Worker initialization deferred:", (err as Error).message);
   }

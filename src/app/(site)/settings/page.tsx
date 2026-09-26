@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { ProgressBar } from "@/components/ProgressBar";
 import { track } from "@/lib/analytics";
 import { ChevronDown, ChevronUp, SlidersHorizontal, ArrowRight, Loader2, BookOpen } from "lucide-react";
@@ -11,17 +12,40 @@ interface TrimSizeOption {
   label: string;
   inches: string;
   popular?: boolean;
-  idealFor: string;
+  /** Settings namespace key for the "ideal for" blurb */
+  idealKey: string;
 }
 
 const TRIM_SIZES: TrimSizeOption[] = [
-  { id: "trim_5x8", label: "5″ × 8″", inches: "5 x 8 in", idealFor: "Pocket paperbacks, fiction, poetry" },
-  { id: "trim_5_5x8_5", label: "5.5″ × 8.5″", inches: "5.5 x 8.5 in", idealFor: "Novels, memoirs, biographies" },
-  { id: "trim_6x9", label: "6″ × 9″", inches: "6 x 9 in", popular: true, idealFor: "Standard publishing, non-fiction, trade" },
-  { id: "trim_8_5x11", label: "8.5″ × 11″", inches: "8.5 x 11 in", idealFor: "Textbooks, workbooks, large manuals" },
+  { id: "trim_5x8", label: "5″ × 8″", inches: "5 x 8 in", idealKey: "trim1Ideal" },
+  { id: "trim_5_5x8_5", label: "5.5″ × 8.5″", inches: "5.5 x 8.5 in", idealKey: "trim2Ideal" },
+  { id: "trim_6x9", label: "6″ × 9″", inches: "6 x 9 in", popular: true, idealKey: "trim3Ideal" },
+  { id: "trim_8_5x11", label: "8.5″ × 11″", inches: "8.5 x 11 in", idealKey: "trim4Ideal" },
 ];
 
+const STYLE_NAME_KEY: Record<string, string> = {
+  classic: "s1Name",
+  modern: "s2Name",
+  philosophy: "s3Name",
+  academic: "s4Name",
+  literary: "s5Name",
+  indian: "s6Name",
+};
+
+const BOOK_TYPE_KEY: Record<string, string> = {
+  novel: "typeNovel",
+  philosophy: "typePhilosophy",
+  academic: "typeAcademic",
+  business: "typeBusiness",
+  memoir: "typeMemoir",
+  spiritual: "typeSpiritual",
+  other: "typeOther",
+};
+
 function SettingsContent() {
+  const t = useTranslations("Settings");
+  const ts = useTranslations("Styles");
+  const tu = useTranslations("Upload");
   const router = useRouter();
   const searchParams = useSearchParams();
   const jobId = searchParams.get("jobId") || "";
@@ -87,6 +111,9 @@ function SettingsContent() {
 
     if (jobId) {
       try {
+        // Guard against NaN in numeric inputs — empty fields produce NaN
+        // via parseFloat, which would propagate to the API as null/NaN.
+        const safeNum = (v: number) => (typeof v === "number" && !isNaN(v) && isFinite(v) ? v : undefined);
         // 1. Save settings
         await fetch(`/api/jobs/${jobId}`, {
           method: "PATCH",
@@ -99,12 +126,12 @@ function SettingsContent() {
               trimSize,
               fontBody,
               fontHeading,
-              fontSizePt,
-              lineHeight,
-              marginInsideMm,
-              marginOutsideMm,
-              marginTopMm,
-              marginBottomMm,
+              fontSizePt: safeNum(fontSizePt),
+              lineHeight: safeNum(lineHeight),
+              marginInsideMm: safeNum(marginInsideMm),
+              marginOutsideMm: safeNum(marginOutsideMm),
+              marginTopMm: safeNum(marginTopMm),
+              marginBottomMm: safeNum(marginBottomMm),
               pageNumbers,
               runningHeaders,
               chapterOpenRecto,
@@ -131,10 +158,10 @@ function SettingsContent() {
 
       <div className="text-center mb-8">
         <h1 className="font-serif text-3xl font-bold text-[#1C1917] mb-2">
-          Format & Print Specifications
+          {t("title")}
         </h1>
         <p className="text-sm text-[#78716C]">
-          Choose your physical book size. Optimal margins and gutter binding allowances are automatically applied.
+          {t("subtitle")}
         </p>
       </div>
 
@@ -144,43 +171,53 @@ function SettingsContent() {
           <div className="flex items-center justify-between border-b border-[#F4EFEA] pb-4">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-[#A34825]">
-                Simple Setup (Standard)
+                {t("simpleSetup")}
               </span>
               <h2 className="font-serif font-bold text-lg text-[#1C1917]">
-                Book Trim Size
+                {t("trimSize")}
               </h2>
             </div>
             <span className="text-xs text-[#78716C] bg-[#F8F5EE] px-3 py-1 rounded-full border border-[#E8E2D5]">
-              90% of authors use 6″ × 9″
+              {t("popularNote")}
             </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {TRIM_SIZES.map((t) => {
-              const isSelected = trimSize === t.id;
+            {TRIM_SIZES.map((opt) => {
+              const isSelected = trimSize === opt.id;
               return (
                 <div
-                  key={t.id}
-                  onClick={() => setTrimSize(t.id)}
-                  className={`p-4 rounded-xl cursor-pointer transition-all border relative flex flex-col justify-between ${
+                  key={opt.id}
+                  onClick={() => setTrimSize(opt.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setTrimSize(opt.id);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={t("trimAria", { size: opt.label })}
+                  aria-pressed={isSelected}
+                  className={`p-4 rounded-xl cursor-pointer transition-all border relative flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A34825] focus-visible:ring-offset-2 ${
                     isSelected
                       ? "border-[#1C1917] bg-[#FDFBF7] ring-1 ring-[#1C1917] shadow-sm"
                       : "border-[#E2DDD2] bg-white hover:border-[#78716C]"
                   }`}
                 >
-                  {t.popular && (
+                  {opt.popular && (
                     <span className="absolute top-3 right-3 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#1C1917] text-white">
-                      Standard
+                      {t("standardBadge")}
                     </span>
                   )}
                   <div>
                     <div className="font-serif font-bold text-base text-[#1C1917]">
-                      {t.label}
+                      {opt.label}
                     </div>
-                    <div className="text-xs text-[#78716C] mt-1">{t.idealFor}</div>
+                    <div className="text-xs text-[#78716C] mt-1">{t(opt.idealKey)}</div>
                   </div>
                   <div className="mt-3 text-[11px] text-[#A34825] font-medium">
-                    {isSelected ? "✓ Selected" : "Click to select"}
+                    {isSelected ? t("selected") : t("clickToSelect")}
                   </div>
                 </div>
               );
@@ -189,16 +226,16 @@ function SettingsContent() {
 
           <div className="pt-4 border-t border-[#F4EFEA] flex flex-wrap gap-4 text-xs text-[#78716C]">
             <div>
-              <span className="font-semibold text-[#1C1917]">Style: </span>
-              <span className="capitalize">{templateKey}</span>
+              <span className="font-semibold text-[#1C1917]">{t("styleLabel")}: </span>
+              <span>{ts(STYLE_NAME_KEY[templateKey] || "s1Name")}</span>
             </div>
             <div>
-              <span className="font-semibold text-[#1C1917]">Type: </span>
-              <span className="capitalize">{bookType}</span>
+              <span className="font-semibold text-[#1C1917]">{t("typeLabel")}: </span>
+              <span>{tu(BOOK_TYPE_KEY[bookType] || "typeNovel")}</span>
             </div>
             <div>
-              <span className="font-semibold text-[#1C1917]">Gutter: </span>
-              <span>Auto-compensated (0.875″)</span>
+              <span className="font-semibold text-[#1C1917]">{t("gutterLabel")}: </span>
+              <span>{t("gutterAuto")}</span>
             </div>
           </div>
         </div>
@@ -214,10 +251,10 @@ function SettingsContent() {
               <SlidersHorizontal className="w-4 h-4 text-[#78716C]" />
               <div>
                 <span className="text-xs font-semibold text-[#1C1917] block">
-                  Advanced Typography & Margin Controls
+                  {t("advanced")}
                 </span>
                 <span className="text-[11px] text-[#78716C]">
-                  Optional fine-tuning (90% of authors leave this untouched)
+                  {t("advancedSub")}
                 </span>
               </div>
             </div>
@@ -233,7 +270,7 @@ function SettingsContent() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block font-semibold text-[#1C1917] mb-1">
-                    Body Font Family
+                    {t("bodyFont")}
                   </label>
                   <select
                     value={fontBody}
@@ -251,7 +288,7 @@ function SettingsContent() {
 
                 <div>
                   <label className="block font-semibold text-[#1C1917] mb-1">
-                    Heading Font Family
+                    {t("headingFont")}
                   </label>
                   <select
                     value={fontHeading}
@@ -271,7 +308,7 @@ function SettingsContent() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div>
                   <label className="block font-semibold text-[#1C1917] mb-1">
-                    Font Size ({fontSizePt}pt)
+                    {t("fontSize")} ({fontSizePt}pt)
                   </label>
                   <input
                     type="number"
@@ -285,7 +322,7 @@ function SettingsContent() {
                 </div>
                 <div>
                   <label className="block font-semibold text-[#1C1917] mb-1">
-                    Line Spacing ({lineHeight}x)
+                    {t("lineSpacing")} ({lineHeight}x)
                   </label>
                   <input
                     type="number"
@@ -299,7 +336,7 @@ function SettingsContent() {
                 </div>
                 <div>
                   <label className="block font-semibold text-[#1C1917] mb-1">
-                    Inside Gutter (mm)
+                    {t("insideGutter")}
                   </label>
                   <input
                     type="number"
@@ -311,7 +348,7 @@ function SettingsContent() {
                 </div>
                 <div>
                   <label className="block font-semibold text-[#1C1917] mb-1">
-                    Outside Margin (mm)
+                    {t("outsideMargin")}
                   </label>
                   <input
                     type="number"
@@ -331,7 +368,7 @@ function SettingsContent() {
                     onChange={(e) => setChapterOpenRecto(e.target.checked)}
                     className="rounded border-[#D6CEBE] text-[#1C1917] focus:ring-0"
                   />
-                  <span>Chapter Openings on Recto (Right page)</span>
+                  <span>{t("rectoChapters")}</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -341,7 +378,7 @@ function SettingsContent() {
                     onChange={(e) => setRunningHeaders(e.target.checked)}
                     className="rounded border-[#D6CEBE] text-[#1C1917] focus:ring-0"
                   />
-                  <span>Include Running Headers</span>
+                  <span>{t("runningHeaders")}</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -351,7 +388,7 @@ function SettingsContent() {
                     onChange={(e) => setBleed(e.target.checked)}
                     className="rounded border-[#D6CEBE] text-[#1C1917] focus:ring-0"
                   />
-                  <span>Include 0.125″ Outer Bleed</span>
+                  <span>{t("bleed")}</span>
                 </label>
               </div>
             </div>
@@ -365,7 +402,7 @@ function SettingsContent() {
             onClick={() => router.back()}
             className="px-5 py-2.5 rounded-lg border border-[#D6CEBE] text-xs font-medium text-[#57534E] hover:bg-[#F8F5EE]"
           >
-            Back to Styles
+            {t("backToStyles")}
           </button>
 
           <button
@@ -377,11 +414,11 @@ function SettingsContent() {
             {isLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Preparing Engine...</span>
+                <span>{t("preparing")}</span>
               </>
             ) : (
               <>
-                <span>Make My Book</span>
+                <span>{t("makeMyBook")}</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
@@ -392,15 +429,18 @@ function SettingsContent() {
   );
 }
 
+function SettingsFallback() {
+  const t = useTranslations("Settings");
+  return (
+    <div className="py-20 text-center text-xs text-[#78716C]">
+      {t("loading")}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="py-20 text-center text-xs text-[#78716C]">
-          Loading specifications...
-        </div>
-      }
-    >
+    <Suspense fallback={<SettingsFallback />}>
       <SettingsContent />
     </Suspense>
   );

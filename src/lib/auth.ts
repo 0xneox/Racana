@@ -10,6 +10,8 @@ export interface SessionPayload {
   user: SessionUser;
   iat: number;
   exp: number;
+  /** Server-side session id (sessions table) — enables revocation. Absent on legacy stateless tokens. */
+  sid?: string;
 }
 
 const SESSION_COOKIE_NAME = "mibo_session";
@@ -99,20 +101,25 @@ async function hmacVerify(message: string, signatureHex: string): Promise<boolea
 
 export async function encodeSession(
   user: SessionUser,
-  ttlSec = DEFAULT_SESSION_TTL_SEC
+  ttlSec = DEFAULT_SESSION_TTL_SEC,
+  sessionId?: string
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const payload: SessionPayload = {
     user,
     iat: now,
     exp: now + ttlSec,
+    ...(sessionId ? { sid: sessionId } : {}),
   };
   const b64 = b64urlEncode(encoder.encode(JSON.stringify(payload)));
   const sig = await hmacSign(b64);
   return `${b64}.${sig}`;
 }
 
-export async function decodeSession(token: string): Promise<SessionUser | null> {
+// Stateless verification only: HMAC signature + expiry. This stays Prisma-free
+// so edge middleware can use it — callers in Node routes that need revocation
+// enforcement should go through `verifySessionToken` in lib/auth/session-store.
+export async function decodeSessionPayload(token: string): Promise<SessionPayload | null> {
   if (!token || typeof token !== "string") return null;
   const dotIdx = token.indexOf(".");
   if (dotIdx < 0) return null;
@@ -130,10 +137,15 @@ export async function decodeSession(token: string): Promise<SessionUser | null> 
     const now = Math.floor(Date.now() / 1000);
     if (payload.exp < now) return null;
     if (!payload.user.id || !payload.user.email) return null;
-    return payload.user as SessionUser;
+    return payload;
   } catch {
     return null;
   }
+}
+
+export async function decodeSession(token: string): Promise<SessionUser | null> {
+  const payload = await decodeSessionPayload(token);
+  return payload?.user ?? null;
 }
 
 export async function getSession(): Promise<SessionUser | null> {
@@ -143,8 +155,11 @@ export async function getSession(): Promise<SessionUser | null> {
   return decodeSession(sessionCookie.value);
 }
 
-export function createSessionCookieValue(user: SessionUser): Promise<string> {
-  return encodeSession(user);
+export function createSessionCookieValue(
+  user: SessionUser,
+  sessionId?: string
+): Promise<string> {
+  return encodeSession(user, DEFAULT_SESSION_TTL_SEC, sessionId);
 }
 
 // --- Anonymous guest sessions ---

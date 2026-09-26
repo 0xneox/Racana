@@ -2,26 +2,27 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { ProgressBar } from "@/components/ProgressBar";
 import { track } from "@/lib/analytics";
 import { CheckCircle2, Loader2, Circle, Sparkles, AlertTriangle, ArrowRight } from "lucide-react";
 
 interface ChecklistItem {
   id: number;
-  label: string;
-  sublabel: string;
+  /** Create namespace suffix: stepNLabel / stepNSub */
+  step: number;
   at: number; // job progress % at which this step becomes active
 }
 
 const CHECKLIST_ITEMS: ChecklistItem[] = [
-  { id: 1, label: "Manuscript analyzed", sublabel: "Parsing file structure, encoding, and word count", at: 12 },
-  { id: 2, label: "Chapters detected", sublabel: "Identifying chapter boundaries, sections, and front/back matter", at: 25 },
-  { id: 3, label: "Typography applied", sublabel: "Resolving template fonts, metrics, and baseline grid", at: 40 },
-  { id: 4, label: "Layout generated", sublabel: "Compiling the interior with the Typst engine", at: 60 },
-  { id: 5, label: "Images checked", sublabel: "Verifying embedded images decode and captions survive", at: 72 },
-  { id: 6, label: "Trim & print checks", sublabel: "Confirming page size matches trim and text renders", at: 85 },
-  { id: 7, label: "Final PDF generated", sublabel: "Saving the print-ready interior to your library", at: 95 },
-  { id: 8, label: "Book ready", sublabel: "Print checks passed — your interior is finished", at: 100 },
+  { id: 1, step: 1, at: 12 },
+  { id: 2, step: 2, at: 25 },
+  { id: 3, step: 3, at: 40 },
+  { id: 4, step: 4, at: 60 },
+  { id: 5, step: 5, at: 72 },
+  { id: 6, step: 6, at: 85 },
+  { id: 7, step: 7, at: 95 },
+  { id: 8, step: 8, at: 100 },
 ];
 
 // Step is "in progress" once the job's progress reaches its threshold; every
@@ -31,6 +32,7 @@ function stepIndexFor(progress: number): number {
 }
 
 function CreateContent() {
+  const t = useTranslations("Create");
   const router = useRouter();
   const searchParams = useSearchParams();
   const jobId = searchParams.get("jobId") || "";
@@ -38,7 +40,7 @@ function CreateContent() {
   const [progress, setProgress] = useState(15);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [activeStep, setActiveStep] = useState<number>(1);
-  const [bookTitle, setBookTitle] = useState("Your Manuscript");
+  const [bookTitle, setBookTitle] = useState(() => t("defaultTitle"));
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
 
@@ -62,19 +64,34 @@ function CreateContent() {
       return () => clearInterval(interval);
     }
 
-    // Real-time polling against /api/jobs/[id]
+    // Fetch the book title once (the full job endpoint) so we don't pull
+    // MBs of structureData on every poll tick.
+    fetch(`/api/jobs/${jobId}`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data?.job?.manuscriptAsset?.fileName) {
+          setBookTitle(data.job.manuscriptAsset.fileName.replace(/\.[^/.]+$/, ""));
+        }
+      })
+      .catch(() => {});
+
+    // Lightweight status polling — only status/progress/currentStep/error.
+    let pollFailures = 0;
     const pollTimer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/jobs/${jobId}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const job = data.job;
+        const res = await fetch(`/api/jobs/${jobId}/status`);
+        if (!res.ok) {
+          pollFailures++;
+          if (pollFailures > 10) {
+            setFailedMessage(t("errConnection"));
+            clearInterval(pollTimer);
+          }
+          return;
+        }
+        pollFailures = 0;
+        const job = await res.json();
 
         if (job) {
-          if (job.manuscriptAsset?.fileName) {
-            setBookTitle(job.manuscriptAsset.fileName.replace(/\.[^/.]+$/, ""));
-          }
-
           const currentPct = job.progress || 10;
           setProgress(currentPct);
 
@@ -86,10 +103,7 @@ function CreateContent() {
           );
 
           if (job.status === "failed") {
-            setFailedMessage(
-              job.errorMessage ||
-                "Something went wrong while making your book. Please try again."
-            );
+            setFailedMessage(job.errorMessage || t("errGeneric"));
             clearInterval(pollTimer);
             return;
           }
@@ -107,10 +121,10 @@ function CreateContent() {
       } catch (err) {
         console.error("Polling error:", err);
       }
-    }, 500);
+    }, 1000);
 
     return () => clearInterval(pollTimer);
-  }, [jobId, router, retryNonce]);
+  }, [jobId, router, retryNonce, t]);
 
   return (
     <div className="py-10 px-4 sm:px-6 max-w-2xl mx-auto">
@@ -119,13 +133,16 @@ function CreateContent() {
       <div className="text-center mb-8">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#A34825]/10 text-[#A34825] text-xs font-semibold mb-3">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Automated Typesetting Pipeline Active</span>
+          <span>{t("badge")}</span>
         </div>
         <h1 className="font-serif text-3xl font-bold text-[#1C1917] mb-2">
-          Crafting Your Finished Book
+          {t("title")}
         </h1>
         <p className="text-sm text-[#78716C]">
-          Transforming <span className="font-semibold text-[#1C1917]">“{bookTitle}”</span> into a bookstore-grade interior.
+          {t.rich("transforming", {
+            title: bookTitle,
+            strong: (chunks) => <span className="font-semibold text-[#1C1917]">{chunks}</span>,
+          })}
         </p>
       </div>
 
@@ -138,7 +155,7 @@ function CreateContent() {
             </div>
             <div className="flex-1">
               <h3 className="font-serif text-lg font-bold text-[#1C1917] mb-1">
-                We couldn't finish this book
+                {t("failTitle")}
               </h3>
               <p className="text-sm text-[#57534E] leading-relaxed mb-4">
                 {failedMessage}
@@ -155,14 +172,14 @@ function CreateContent() {
                   }}
                   className="px-5 py-2.5 rounded-lg bg-[#1C1917] text-[#F8F5EE] text-xs font-semibold hover:bg-[#2E2824] transition-all flex items-center gap-2"
                 >
-                  <span>Try Again</span>
+                  <span>{t("tryAgain")}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => router.push("/upload")}
                   className="px-5 py-2.5 rounded-lg border border-[#D6CEBE] text-xs font-medium text-[#57534E] hover:bg-[#F8F5EE]"
                 >
-                  Upload a different file
+                  {t("uploadDifferent")}
                 </button>
               </div>
             </div>
@@ -176,7 +193,7 @@ function CreateContent() {
         {/* Progress Bar */}
         <div className="mb-8">
           <div className="flex items-center justify-between text-xs mb-2">
-            <span className="font-semibold text-[#1C1917]">Generating Book Interior</span>
+            <span className="font-semibold text-[#1C1917]">{t("generating")}</span>
             <span className="font-mono text-[#A34825] font-bold">{Math.min(100, Math.round(progress))}%</span>
           </div>
           <div className="w-full h-2.5 bg-[#F4EFEA] rounded-full overflow-hidden">
@@ -226,21 +243,21 @@ function CreateContent() {
                           : "text-[#78716C]"
                       }`}
                     >
-                      {item.label}
+                      {t(`step${item.step}Label`)}
                     </span>
                     {isCompleted && (
                       <span className="text-[10px] uppercase tracking-wider font-semibold text-[#A34825]">
-                        Verified
+                        {t("verified")}
                       </span>
                     )}
                     {isActive && (
                       <span className="text-[10px] uppercase tracking-wider font-semibold text-[#1C1917] animate-pulse">
-                        In Progress
+                        {t("inProgress")}
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-[#78716C] mt-0.5">
-                    {item.sublabel}
+                    {t(`step${item.step}Sub`)}
                   </p>
                 </div>
               </div>
@@ -251,21 +268,24 @@ function CreateContent() {
       )}
 
       <p className="text-center text-xs text-[#A8A29E] mt-6 italic font-serif">
-        Zero technical knowledge required • Perfect margins guaranteed
+        {t("footerNote")}
       </p>
+    </div>
+  );
+}
+
+function CreateFallback() {
+  const t = useTranslations("Create");
+  return (
+    <div className="py-20 text-center text-xs text-[#78716C]">
+      {t("loading")}
     </div>
   );
 }
 
 export default function CreatePage() {
   return (
-    <Suspense
-      fallback={
-        <div className="py-20 text-center text-xs text-[#78716C]">
-          Loading generator...
-        </div>
-      }
-    >
+    <Suspense fallback={<CreateFallback />}>
       <CreateContent />
     </Suspense>
   );

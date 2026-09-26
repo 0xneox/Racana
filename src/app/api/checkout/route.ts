@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     }
 
     const ip = getClientIp(request);
-    const limit = rateLimit(`checkout:ip:${ip}`, 20, 60 * 60 * 1000);
+    const limit = await rateLimit(`checkout:ip:${ip}`, 20, 60 * 60 * 1000);
     if (!limit.allowed) {
       return NextResponse.json(
         { error: "Too many checkout attempts. Please try again later." },
@@ -107,6 +107,7 @@ export async function POST(request: NextRequest) {
         amountCents: 2900,
         currency: "usd",
         status: "pending",
+        provider: "stripe",
       },
     });
 

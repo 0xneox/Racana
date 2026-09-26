@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BookOpen, Loader2, AlertTriangle, CheckCircle2, Clock, ArrowRight } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 interface JobRow {
   id: string;
@@ -14,18 +15,21 @@ interface JobRow {
   templateChoice?: { name: string; personality: string } | null;
 }
 
-function statusLabel(status: string): { text: string; tone: "ready" | "working" | "failed" | "draft" } {
+function statusLabel(
+  status: string,
+  t: (key: string, values?: Record<string, string | number>) => string
+): { text: string; tone: "ready" | "working" | "failed" | "draft" } {
   switch (status) {
     case "ready":
-      return { text: "Print-ready", tone: "ready" };
+      return { text: t("statusReady"), tone: "ready" };
     case "failed":
-      return { text: "Needs attention", tone: "failed" };
+      return { text: t("statusFailed"), tone: "failed" };
     case "uploaded":
     case "analyzing":
     case "structure_ready":
-      return { text: "Analysis", tone: "draft" };
+      return { text: t("statusAnalysis"), tone: "draft" };
     default:
-      return { text: "In production", tone: "working" };
+      return { text: t("statusProduction"), tone: "working" };
   }
 }
 
@@ -46,6 +50,7 @@ function destinationFor(job: JobRow): string {
 }
 
 export default function BooksPage() {
+  const t = useTranslations("Books");
   const router = useRouter();
   const [jobs, setJobs] = useState<JobRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,19 +58,20 @@ export default function BooksPage() {
   useEffect(() => {
     fetch("/api/jobs")
       .then(async (res) => {
-        if (!res.ok) throw new Error("Couldn't load your books.");
+        if (!res.ok) throw new Error(t("errLoad"));
         const data = await res.json();
         setJobs(data.jobs || []);
       })
       .catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="py-10 px-4 sm:px-6 max-w-4xl mx-auto">
       <div className="text-center mb-10">
-        <h1 className="font-serif text-3xl font-bold text-[#1C1917] mb-2">My Books</h1>
+        <h1 className="font-serif text-3xl font-bold text-[#1C1917] mb-2">{t("title")}</h1>
         <p className="text-sm text-[#78716C]">
-          Every manuscript you've brought to Racana — pick up right where you left off.
+          {t("subtitle")}
         </p>
       </div>
 
@@ -79,7 +85,7 @@ export default function BooksPage() {
       {!error && jobs === null && (
         <div className="py-20 flex items-center justify-center gap-3 text-xs text-[#78716C]">
           <Loader2 className="w-4 h-4 animate-spin text-[#A34825]" />
-          <span>Loading your bookshelf…</span>
+          <span>{t("loading")}</span>
         </div>
       )}
 
@@ -88,15 +94,15 @@ export default function BooksPage() {
           <div className="w-12 h-12 rounded-xl bg-[#F4EFEA] text-[#A34825] flex items-center justify-center mx-auto mb-4">
             <BookOpen className="w-6 h-6" />
           </div>
-          <h3 className="font-serif font-bold text-lg text-[#1C1917] mb-1">Your shelf is empty</h3>
+          <h3 className="font-serif font-bold text-lg text-[#1C1917] mb-1">{t("emptyTitle")}</h3>
           <p className="text-xs text-[#78716C] mb-6">
-            Upload your first manuscript and we'll typeset it into a print-ready book.
+            {t("emptyDesc")}
           </p>
           <Link
             href="/upload"
             className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#1C1917] text-[#F8F5EE] text-sm font-medium hover:bg-[#2E2824] transition-all"
           >
-            Upload your manuscript <ArrowRight className="w-4 h-4" />
+            {t("emptyCta")} <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
       )}
@@ -104,9 +110,9 @@ export default function BooksPage() {
       {jobs && jobs.length > 0 && (
         <div className="space-y-3">
           {jobs.map((job) => {
-            const s = statusLabel(job.status);
+            const s = statusLabel(job.status, t);
             const title =
-              job.manuscriptAsset?.fileName?.replace(/\.[^/.]+$/, "") || "Untitled Manuscript";
+              job.manuscriptAsset?.fileName?.replace(/\.[^/.]+$/, "") || t("untitled");
             return (
               <button
                 key={job.id}
@@ -129,8 +135,8 @@ export default function BooksPage() {
                   <div className="text-[11px] text-[#78716C] mt-0.5">
                     {job.templateChoice?.name || "Classic"} ·{" "}
                     {job.manuscriptAsset?.pageCountEstimate
-                      ? `~${job.manuscriptAsset.pageCountEstimate} pages`
-                      : "pages pending"}{" "}
+                      ? t("pagesApprox", { count: job.manuscriptAsset.pageCountEstimate })
+                      : t("pagesPending")}{" "}
                     · {new Date(job.createdAt).toLocaleDateString()}
                   </div>
                 </div>

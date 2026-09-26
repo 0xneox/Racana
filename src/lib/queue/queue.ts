@@ -50,6 +50,7 @@ export async function addJobToQueue(jobId: string, payload: Record<string, unkno
           attempts: 2,
           backoff: { type: "exponential", delay: 1000 },
           removeOnComplete: true,
+          removeOnFail: 100, // keep last 100 failed jobs for debugging
         }),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error("queue add timed out")), 5000)
@@ -68,14 +69,27 @@ export async function addJobToQueue(jobId: string, payload: Record<string, unkno
     console.warn("[Queue] BullMQ dispatch failed, will run in-process worker:", (err as Error).message);
   }
 
-  // In-process fallback: trigger worker directly asynchronously
+  // In-process fallback: trigger worker directly asynchronously.
+  // The setTimeout import can fail if the worker module is broken — in that
+  // case we return { success: false } so the caller can surface an error
+  // instead of leaving the job stuck at "analyzing"/"queued" forever.
   const task = (payload.task as string) || "render";
+  let dispatchFailed = false;
   setTimeout(() => {
     import("./worker").then(({ processBookJob, runAnalysisTask }) => {
       const run = task === "analyze" ? runAnalysisTask : processBookJob;
       run(jobId).catch((e) => console.error("Worker error:", e));
+    }).catch((e) => {
+      console.error("[Queue] In-process worker import failed:", e);
+      dispatchFailed = true;
     });
   }, 100);
+
+  // If the import fails synchronously (unlikely but possible), the flag is
+  // already set.  Otherwise the job is in-flight.
+  if (dispatchFailed) {
+    return { success: false, queuedWith: "in-process", error: "Worker module failed to load" };
+  }
 
   return { success: true, queuedWith: "in-process" };
 }

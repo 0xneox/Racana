@@ -5,12 +5,12 @@ import prisma from "./db";
 import {
   createGuestToken,
   decodeGuestToken,
-  decodeSession,
   GUEST_COOKIE_NAME,
   GUEST_TTL_SEC,
   SESSION_COOKIE_NAME,
   type SessionUser,
 } from "./auth";
+import { verifySessionToken } from "./auth/session-store";
 
 export const GENERIC_INTERNAL_ERROR = "Internal server error. Please try again later.";
 
@@ -28,7 +28,7 @@ export async function requireSession() {
       { status: 401 }
     )};
   }
-  const user = await decodeSession(cookie.value);
+  const user = await verifySessionToken(cookie.value);
   if (!user) {
     return { user: null, error: NextResponse.json(
       { error: "Session invalid or expired. Please sign in again." },
@@ -53,7 +53,7 @@ export async function requireIdentity(): Promise<Identity> {
 
   const sessionCookie = store.get(SESSION_COOKIE_NAME);
   if (sessionCookie?.value) {
-    const user = await decodeSession(sessionCookie.value);
+    const user = await verifySessionToken(sessionCookie.value);
     if (user) return { user, guestId: null, newGuestToken: null };
   }
 

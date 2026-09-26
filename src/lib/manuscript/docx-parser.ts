@@ -66,7 +66,7 @@ async function parseDocxFallback(buffer: Buffer): Promise<DocxParseResult> {
     while ((tm = textRegex.exec(para)) !== null) {
       textParts.push(decodeXmlEntities(tm[1]));
     }
-    const text = trimText(textParts.join(""));
+    const text = trimText(textParts.join("").replace(/\u00AD/g, ""));
     if (!text) continue;
 
     rawParts.push(text);
@@ -89,7 +89,86 @@ async function parseDocxFallback(buffer: Buffer): Promise<DocxParseResult> {
     throw new Error("DOCX fallback extraction produced no readable text");
   }
 
-  return { blocks, rawText: rawParts.join("\n\n") };
+  return { blocks: repairLineBreakSplits(blocks), rawText: rawParts.join("\n\n") };
+}
+
+// De-hyphenate within a single block's text.  DOCX line breaks inside a
+// paragraph can leave patterns like "cer-\ntain" in the extracted text —
+// a regular hyphen (U+002D) followed by a newline.  When Typst renders this,
+// it shows "cer tain" (the hyphen becomes a space at the line break).
+// This function joins such patterns back into "certain".
+function deHyphenateText(text: string): string {
+  return text.replace(/([a-zA-Z])-\n([a-zA-Z])/g, "$1$2");
+}
+
+// Post-process the blocks list to repair words that mammoth split across
+// line breaks.  DOCX files (especially from Word's automatic hyphenation or
+// manual line breaks within paragraphs) arrive as separate <p> tags per
+// line, so a word like "understanding" hyphenated at a line end becomes two
+// blocks: "under-" and "standing".  Without this repair, the rendered book
+// shows "under standing" — a broken word with a space where the hyphen was.
+//
+// Rules:
+//   1. De-hyphenation: if block N ends with "-" and block N+1 starts with a
+//      lowercase letter, join them (remove the hyphen).  "under-" + "standing"
+//      -> "understanding".
+//   2. Continuation join: if block N+1 is a very short fragment (<= 5 chars)
+//      starting with a lowercase letter, and block N doesn't end with
+//      sentence-ending punctuation, join them with no extra space.  This
+//      catches "Be" + "gin" -> "Begin" where the split had no hyphen.
+function repairLineBreakSplits(blocks: Block[]): Block[] {
+  // First, de-hyphenate within each block's own text.
+  for (const b of blocks) {
+    if (b.text) b.text = deHyphenateText(b.text);
+    if (b.items) b.items = b.items.map((it) => deHyphenateText(it));
+    if (b.rows) {
+      for (const r of b.rows) {
+        for (const c of r.cells) c.text = deHyphenateText(c.text);
+      }
+    }
+  }
+
+  if (blocks.length < 2) return blocks;
+  const result: Block[] = [blocks[0]];
+  for (let i = 1; i < blocks.length; i++) {
+    const prev = result[result.length - 1];
+    const curr = blocks[i];
+
+    // Only merge paragraph-into-paragraph or heading-into-heading (don't
+    // merge a paragraph into a list, table, image, etc.).
+    const isTextBlock = (b: Block) =>
+      b.type === "paragraph" || b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3";
+    if (!isTextBlock(prev) || !isTextBlock(curr)) {
+      result.push(curr);
+      continue;
+    }
+
+    const prevText = (prev.text || "").trim();
+    const currText = (curr.text || "").trim();
+
+    // Rule 1: de-hyphenation — prev ends with "-", curr starts lowercase
+    if (prevText.endsWith("-") && /^[a-z]/.test(currText)) {
+      const joined = prevText.slice(0, -1) + currText;
+      prev.text = joined;
+      continue;
+    }
+
+    // Rule 2: continuation — curr is a very short fragment starting with
+    // lowercase, prev doesn't end with sentence punctuation.  This catches
+    // splits like "Be" + "gin" where no hyphen was present.
+    if (
+      currText.length <= 5 &&
+      /^[a-z]/.test(currText) &&
+      !/[.!?;:"]$/.test(prevText) &&
+      prevText.length > 0
+    ) {
+      prev.text = prevText + currText;
+      continue;
+    }
+
+    result.push(curr);
+  }
+  return result;
 }
 
 export async function parseDocx(buffer: Buffer): Promise<DocxParseResult> {
@@ -149,7 +228,12 @@ async function parseDocxWithMammoth(buffer: Buffer): Promise<DocxParseResult> {
 
   const htmlContent = htmlResult.value;
 
-  const tagRegex = /<(ol|ul|table|blockquote|h[1-6]|p|img|li|tr|td|th|div|span)[^>]*>|<\/(ol|ul|table|blockquote|h[1-6]|p|img|li|tr|td|th|div|span)>/gi;
+  // Include inline formatting tags (strong, em, b, i, a, etc.) so they are
+  // recognised as tags and stripped — their text content flows into the
+  // paragraph buffer as plain text.  Without this, `<strong>...</strong>`
+  // and `<em>...</em>` from mammoth's HTML output leak through as literal
+  // strings into the rendered book.
+  const tagRegex = /<(ol|ul|table|blockquote|h[1-6]|p|img|li|tr|td|th|div|span|strong|em|b|i|a|sup|sub|u|s|mark|code|font|br)[^>]*>|<\/(ol|ul|table|blockquote|h[1-6]|p|img|li|tr|td|th|div|span|strong|em|b|i|a|sup|sub|u|s|mark|code|font)>/gi;
 
   let lastIndex = 0;
   const tagStack: { tag: string; attrs: Record<string, string> }[] = [];
@@ -219,7 +303,12 @@ async function parseDocxWithMammoth(buffer: Buffer): Promise<DocxParseResult> {
         .replace(/&gt;/gi, ">")
         .replace(/&quot;/gi, '"')
         .replace(/&#39;/gi, "'")
-        .replace(/<br\s*\/?>/gi, "\n");
+        .replace(/<br\s*\/?>/gi, "\n")
+        // Strip soft hyphens (U+00AD) — DOCX uses them for automatic
+        // hyphenation; when mammoth preserves them, words like "under\u00AD
+        // standing" render as "under standing" (split at the invisible
+        // hyphen). Removing them joins the word back together.
+        .replace(/\u00AD/g, "");
       if (currentRowCells.length > 0) {
         currentRowCells[currentRowCells.length - 1].text += decoded;
       } else if (listItems.length > 0 && listType) {
@@ -272,7 +361,11 @@ async function parseDocxWithMammoth(buffer: Buffer): Promise<DocxParseResult> {
       while ((attrMatch = attrRegex.exec(fullTag)) !== null) {
         attrs[attrMatch[1].toLowerCase()] = attrMatch[2] ?? attrMatch[3] ?? "";
       }
-      tagStack.push({ tag: tagName, attrs });
+      // Don't push self-closing tags onto the stack — they have no closing
+      // tag and would accumulate forever.
+      if (tagName !== "br" && tagName !== "img") {
+        tagStack.push({ tag: tagName, attrs });
+      }
 
       const styleAttr = (attrs.style || attrs["data-style"] || "").toLowerCase();
       const classAttr = attrs.class || "";
@@ -327,6 +420,18 @@ async function parseDocxWithMammoth(buffer: Buffer): Promise<DocxParseResult> {
           src: attrs.src || "",
         });
       }
+
+      // <br> is a self-closing inline break — insert a newline into whatever
+      // buffer is currently active (paragraph, list item, or table cell).
+      if (tagName === "br") {
+        if (currentRowCells.length > 0) {
+          currentRowCells[currentRowCells.length - 1].text += "\n";
+        } else if (listItems.length > 0 && listType) {
+          listItems[listItems.length - 1] += "\n";
+        } else {
+          paragraphBuffer += "\n";
+        }
+      }
     }
   }
 
@@ -339,7 +444,8 @@ async function parseDocxWithMammoth(buffer: Buffer): Promise<DocxParseResult> {
       .replace(/&gt;/gi, ">")
       .replace(/&quot;/gi, '"')
       .replace(/&#39;/gi, "'")
-      .replace(/<br\s*\/?>/gi, "\n");
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/\u00AD/g, "");
     paragraphBuffer += decoded;
   }
 
@@ -407,5 +513,5 @@ async function parseDocxWithMammoth(buffer: Buffer): Promise<DocxParseResult> {
     }
   }
 
-  return { blocks, rawText };
+  return { blocks: repairLineBreakSplits(blocks), rawText };
 }

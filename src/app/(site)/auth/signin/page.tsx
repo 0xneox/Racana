@@ -3,15 +3,17 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { BookOpen, Mail, Loader2, MailCheck } from "lucide-react";
+import { useTranslations } from "next-intl";
 
-const ERROR_MESSAGES: Record<string, string> = {
-  invalid_link: "That sign-in link is invalid or has expired. Please request a new one.",
-  verify_failed: "We couldn't complete sign-in. Please try again.",
-  oauth_state: "Google sign-in failed a security check. Please try again.",
-  oauth_failed: "Google sign-in didn't complete. Please try again.",
+const ERROR_KEYS: Record<string, string> = {
+  invalid_link: "errInvalidLink",
+  verify_failed: "errVerifyFailed",
+  oauth_state: "errOauthState",
+  oauth_failed: "errOauthFailed",
 };
 
 function SignInContent() {
+  const t = useTranslations("Auth");
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/upload";
   const urlError = searchParams.get("error");
@@ -20,7 +22,7 @@ function SignInContent() {
   const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(
-    urlError ? ERROR_MESSAGES[urlError] || "Sign-in failed. Please try again." : null
+    urlError ? t(ERROR_KEYS[urlError] || "errGeneric") : null
   );
   const [linkSent, setLinkSent] = useState(false);
   const [devLink, setDevLink] = useState<string | null>(null);
@@ -36,7 +38,7 @@ function SignInContent() {
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !email.includes("@")) {
-      setError("Please enter a valid email address.");
+      setError(t("errInvalidEmail"));
       return;
     }
 
@@ -51,7 +53,7 @@ function SignInContent() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Sign in failed");
+      if (!res.ok) throw new Error(data.error || t("errGeneric"));
 
       if (data.devLink) setDevLink(data.devLink);
       setLinkSent(true);
@@ -73,10 +75,10 @@ function SignInContent() {
           <BookOpen className="w-6 h-6" />
         </div>
         <h1 className="font-serif text-3xl font-bold text-[#1C1917] mb-2">
-          Author Sign In
+          {t("title")}
         </h1>
         <p className="text-xs text-[#78716C]">
-          Save your book projects, re-download formatted interiors, and manage your titles.
+          {t("subtitle")}
         </p>
       </div>
 
@@ -87,22 +89,24 @@ function SignInContent() {
               <MailCheck className="w-6 h-6" />
             </div>
             <h2 className="font-serif text-xl font-bold text-[#1C1917]">
-              Check your inbox
+              {t("checkInbox")}
             </h2>
             <p className="text-xs text-[#78716C] leading-relaxed">
-              We sent a sign-in link to <strong>{email}</strong>.
-              The link is valid for 15 minutes and can only be used once.
+              {t.rich("linkSent", {
+                email,
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
             </p>
             {devLink && (
               <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-left">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1">
-                  Dev mode — email not configured
+                  {t("devMode")}
                 </p>
                 <a
                   href={devLink}
                   className="text-xs text-[#A34825] underline break-all"
                 >
-                  Click here to sign in
+                  {t("devSignIn")}
                 </a>
               </div>
             )}
@@ -111,7 +115,7 @@ function SignInContent() {
               onClick={() => { setLinkSent(false); setDevLink(null); }}
               className="text-xs font-semibold text-[#57534E] hover:text-[#1C1917] underline"
             >
-              Use a different email
+              {t("useDifferentEmail")}
             </button>
           </div>
         ) : (
@@ -129,13 +133,13 @@ function SignInContent() {
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                   </svg>
-                  <span>Continue with Google</span>
+                  <span>{t("continueGoogle")}</span>
                 </button>
 
                 <div className="relative flex items-center justify-center">
                   <div className="w-full border-t border-[#E8E2D5]" />
                   <span className="bg-white px-3 text-[11px] text-[#A8A29E] uppercase tracking-wider relative">
-                    Or magic link
+                    {t("orMagicLink")}
                   </span>
                 </div>
               </>
@@ -144,7 +148,7 @@ function SignInContent() {
             <form onSubmit={handleEmailSignIn} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-[#57534E] mb-1">
-                  Author Name (Optional)
+                  {t("nameLabel")}
                 </label>
                 <input
                   type="text"
@@ -157,7 +161,7 @@ function SignInContent() {
 
               <div>
                 <label className="block text-xs font-semibold text-[#57534E] mb-1">
-                  Email Address
+                  {t("emailLabel")}
                 </label>
                 <input
                   type="email"
@@ -185,11 +189,11 @@ function SignInContent() {
                 ) : (
                   <Mail className="w-4 h-4" />
                 )}
-                <span>Email Me a Sign-In Link</span>
+                <span>{t("submit")}</span>
               </button>
 
               <p className="text-[11px] text-center text-[#A8A29E]">
-                No password needed — we'll email you a secure one-time link.
+                {t("noPassword")}
               </p>
             </form>
           </>
@@ -199,15 +203,18 @@ function SignInContent() {
   );
 }
 
+function SignInFallback() {
+  const t = useTranslations("Auth");
+  return (
+    <div className="py-20 text-center text-xs text-[#78716C]">
+      {t("loading")}
+    </div>
+  );
+}
+
 export default function SignInPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="py-20 text-center text-xs text-[#78716C]">
-          Loading sign in...
-        </div>
-      }
-    >
+    <Suspense fallback={<SignInFallback />}>
       <SignInContent />
     </Suspense>
   );

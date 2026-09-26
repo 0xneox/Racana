@@ -52,3 +52,29 @@ export async function POST(
     return NextResponse.json({ error: GENERIC_INTERNAL_ERROR }, { status: 500 });
   }
 }
+
+// Revoke the share token — the /s/{token} URL immediately stops working.
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const identity = await requireIdentity();
+
+    const ownerRes = await requireJobOwner(params.id, {
+      userId: identity.user?.id,
+      guestId: identity.guestId,
+    });
+    if (ownerRes.error) return ownerRes.error;
+
+    await prisma.bookJob.update({
+      where: { id: params.id },
+      data: { shareToken: null },
+    });
+
+    return NextResponse.json({ success: true, message: "Share link revoked." });
+  } catch (err) {
+    logServerError("Share Revoke API", err);
+    return NextResponse.json({ error: GENERIC_INTERNAL_ERROR }, { status: 500 });
+  }
+}

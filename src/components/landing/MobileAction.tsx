@@ -3,8 +3,10 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 
 export function MobileAction() {
+  const t = useTranslations("Hero");
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     const target = document.querySelector("#hero-action");
@@ -29,7 +31,7 @@ export function MobileAction() {
           : "pointer-events-none translate-y-20 opacity-0"
       }`}
     >
-      <span>Start with your manuscript</span>
+      <span>{t("ctaPrimary")}</span>
       <ArrowRight className="size-4" />
     </Link>
   );

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { ProgressBar } from "@/components/ProgressBar";
 import {
@@ -23,15 +24,24 @@ import {
 import { track } from "@/lib/analytics";
 
 function ReadyContent() {
+  const t = useTranslations("Ready");
+  const ts = useTranslations("Styles");
   const searchParams = useSearchParams();
-  const jobId = searchParams.get("jobId") || "demo-job-ready-001";
+  const jobId = searchParams.get("jobId") || "";
   const justPaid = searchParams.get("paid") === "1";
 
-  const [bookTitle, setBookTitle] = useState("Your Finished Book");
-  const [templateName, setTemplateName] = useState("Classic");
+  // If no jobId, redirect to upload — showing fake demo data is misleading.
+  useEffect(() => {
+    if (!jobId) {
+      window.location.href = "/upload";
+    }
+  }, [jobId]);
+
+  const [bookTitle, setBookTitle] = useState(() => t("defaultTitle"));
+  const [templateName, setTemplateName] = useState(() => ts("s1Name"));
   const [trimSize, setTrimSize] = useState("6″ × 9″");
   const [gutterLabel, setGutterLabel] = useState("0.875″");
-  const [chapterOpenLabel, setChapterOpenLabel] = useState("Recto (Right)");
+  const [chapterOpenLabel, setChapterOpenLabel] = useState(() => t("rectoLabel"));
   const [pageCount, setPageCount] = useState(184);
   const [qaScore, setQaScore] = useState<number | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
@@ -83,7 +93,7 @@ function ReadyContent() {
                 setGutterLabel(`${(s.marginInsideMm / 25.4).toFixed(3)}″`);
               }
               if (typeof s.chapterOpenRecto === "boolean") {
-                setChapterOpenLabel(s.chapterOpenRecto ? "Recto (Right)" : "Any page");
+                setChapterOpenLabel(s.chapterOpenRecto ? t("rectoLabel") : t("anyPageLabel"));
               }
             }
             if (j.trimSize) {
@@ -117,25 +127,64 @@ function ReadyContent() {
       const stop = setTimeout(() => clearInterval(interval), 30000);
       return () => { clearInterval(interval); clearTimeout(stop); };
     }
-  }, [jobId, justPaid, isPaid]);
+  }, [jobId, justPaid, isPaid, t]);
 
   const handleCheckout = async () => {
     track("checkout_started", {}, jobId);
     setIsCheckingOut(true);
     setCheckoutError(null);
     try {
+      // Try Stripe first (global). If Stripe isn't configured, fall back to
+      // Razorpay (India).
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Checkout failed");
-      if (data.url) {
+
+      if (res.ok && data.url) {
         window.location.href = data.url;
         return;
       }
-      throw new Error("No checkout URL returned");
+
+      // Stripe unavailable — try Razorpay
+      if (res.status === 503) {
+        const rzpRes = await fetch("/api/checkout/razorpay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId }),
+        });
+        const rzpData = await rzpRes.json();
+
+        if (rzpRes.ok && rzpData.orderId) {
+          // Load Razorpay checkout.js and open the payment modal
+          const script = document.createElement("script");
+          script.src = "https://checkout.razorpay.com/v1/checkout.js";
+          script.onload = () => {
+            const rzp = new (window as any).Razorpay({
+              key: rzpData.keyId,
+              amount: rzpData.amount,
+              currency: rzpData.currency,
+              order_id: rzpData.orderId,
+              name: "Racana",
+              description: rzpData.description,
+              handler: () => {
+                window.location.href = rzpData.successUrl;
+              },
+              modal: { ondismiss: () => setIsCheckingOut(false) },
+              theme: { color: "#1C1917" },
+            });
+            rzp.open();
+          };
+          document.body.appendChild(script);
+          return;
+        }
+
+        throw new Error(rzpData.error || data.error || t("errPayment"));
+      }
+
+      throw new Error(data.error || t("errCheckout"));
     } catch (err) {
       setCheckoutError((err as Error).message);
       setIsCheckingOut(false);
@@ -145,7 +194,7 @@ function ReadyContent() {
   const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !email.includes("@")) {
-      setEmailStatus("Please enter a valid email address.");
+      setEmailStatus(t("errInvalidEmail"));
       return;
     }
 
@@ -159,11 +208,11 @@ function ReadyContent() {
         body: JSON.stringify({ jobId, email }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to send email");
-      setEmailStatus(`✓ Print-ready files scheduled to ${email}`);
+      if (!res.ok) throw new Error(data.error || t("errEmail"));
+      setEmailStatus(t("emailSent", { email }));
       track("email_book_sent", {}, jobId);
     } catch (err) {
-      setEmailStatus("Error sending email: " + (err as Error).message);
+      setEmailStatus(t("emailError", { message: (err as Error).message }));
     } finally {
       setIsSendingEmail(false);
     }
@@ -185,13 +234,22 @@ function ReadyContent() {
     }
   };
 
-  const shareText = `I just typeset "${bookTitle}" into a print-ready book interior with Racana — took about 2 minutes.`;
+  const shareText = t("shareText", { title: bookTitle });
   const xShareUrl = shareUrl
     ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(`${shareText} ${shareUrl}`)}`
     : null;
   const waShareUrl = shareUrl
     ? `https://wa.me/?text=${encodeURIComponent(`${shareText} ${shareUrl}`)}`
     : null;
+
+  if (!jobId) {
+    return (
+      <div className="py-20 px-4 text-center">
+        <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#78716C]" />
+        <p className="mt-3 text-sm text-[#78716C]">{t("redirecting")}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="py-10 px-4 sm:px-6 max-w-3xl mx-auto">
@@ -202,15 +260,15 @@ function ReadyContent() {
           <div className="flex items-center gap-3">
             <UserPlus className="h-5 w-5 shrink-0 text-[#A34825]" />
             <p className="text-xs leading-5 text-[#57534E]">
-              <span className="font-semibold text-[#1C1917]">You're using Racana as a guest.</span>{" "}
-              Sign in to keep this book in your library forever.
+              <span className="font-semibold text-[#1C1917]">{t("guestNotice")}</span>{" "}
+              {t("guestNoticeCta")}
             </p>
           </div>
           <Link
             href={`/auth/signin?callbackUrl=${encodeURIComponent(`/ready?jobId=${jobId}`)}`}
             className="ml-auto shrink-0 rounded-lg bg-[#1C1917] px-4 py-2 text-xs font-semibold text-[#F8F5EE] hover:bg-[#2E2824]"
           >
-            Save my book
+            {t("guestSave")}
           </Link>
         </div>
       )}
@@ -218,13 +276,13 @@ function ReadyContent() {
       <div className="text-center mb-10">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#A34825]/10 text-[#A34825] text-xs font-semibold mb-3">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Press-Ready Interior Generated</span>
+          <span>{t("badge")}</span>
         </div>
         <h1 className="font-serif text-3xl sm:text-4xl font-bold text-[#1C1917] mb-2">
-          Your Finished Book is Ready
+          {t("title")}
         </h1>
         <p className="text-sm text-[#78716C]">
-          Typeset to professional bookstore standards. Fully prepared for Amazon KDP, IngramSpark, or offset press.
+          {t("subtitle")}
         </p>
       </div>
 
@@ -240,34 +298,34 @@ function ReadyContent() {
                 {bookTitle}
               </h2>
               <span className="text-xs text-[#78716C]">
-                Interior PDF • {pageCount} pages • {trimSize}
+                {t("interiorMeta", { pages: pageCount, trim: trimSize })}
               </span>
             </div>
           </div>
 
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#1C1917] text-white text-xs font-semibold uppercase tracking-wider">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Print-Ready
+            <CheckCircle2 className="w-3.5 h-3.5" /> {t("printReady")}
           </span>
         </div>
 
         {/* Print Spec Badges */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-6 text-xs text-[#57534E]">
           <div>
-            <span className="text-[#A8A29E] block mb-0.5">Style Applied</span>
+            <span className="text-[#A8A29E] block mb-0.5">{t("styleApplied")}</span>
             <span className="font-semibold text-[#1C1917] font-serif">{templateName}</span>
           </div>
           <div>
-            <span className="text-[#A8A29E] block mb-0.5">Spine Gutter</span>
+            <span className="text-[#A8A29E] block mb-0.5">{t("spineGutter")}</span>
             <span className="font-semibold text-[#1C1917]">{gutterLabel}</span>
           </div>
           <div>
-            <span className="text-[#A8A29E] block mb-0.5">Chapter Opening</span>
+            <span className="text-[#A8A29E] block mb-0.5">{t("chapterOpening")}</span>
             <span className="font-semibold text-[#1C1917]">{chapterOpenLabel}</span>
           </div>
           <div>
-            <span className="text-[#A8A29E] block mb-0.5">Margins & Folios</span>
+            <span className="text-[#A8A29E] block mb-0.5">{t("marginsFolios")}</span>
             <span className="font-semibold text-[#1C1917]">
-              {qaScore !== null ? `QA Score ${qaScore}/100` : "QA Passed"}
+              {qaScore !== null ? t("qaScore", { score: qaScore }) : t("qaPassed")}
             </span>
           </div>
         </div>
@@ -276,13 +334,13 @@ function ReadyContent() {
         <div className="pt-6 border-t border-[#E8E2D5] space-y-4">
           {justPaid && isPaid && (
             <p className="text-xs font-semibold text-[#166534] bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg p-3 text-center">
-              ✓ Payment confirmed — your clean print-ready PDF is unlocked.
+              {t("paymentConfirmed")}
             </p>
           )}
           {justPaid && !isPaid && (
             <p className="text-xs font-medium text-[#78716C] bg-[#F8F5EE] border border-[#E8E2D5] rounded-lg p-3 text-center flex items-center justify-center gap-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Confirming your payment…
+              {t("confirmingPayment")}
             </p>
           )}
 
@@ -298,7 +356,7 @@ function ReadyContent() {
               }`}
             >
               <Download className="w-4 h-4" />
-              <span>{isPaid ? "Download Print-Ready PDF" : "Download Free Preview (Watermarked)"}</span>
+              <span>{isPaid ? t("downloadPaid") : t("downloadFree")}</span>
             </a>
 
             {!isPaid && (
@@ -313,7 +371,7 @@ function ReadyContent() {
                 ) : (
                   <CreditCard className="w-4 h-4" />
                 )}
-                <span>Unlock Print-Ready PDF — $29 (≈ ₹2,450)</span>
+                <span>{t("unlock")}</span>
               </button>
             )}
           </div>
@@ -321,7 +379,7 @@ function ReadyContent() {
           {!isPaid && (
             <p className="text-[11px] text-[#A8A29E] text-center flex items-center justify-center gap-1.5">
               <Lock className="w-3 h-3" />
-              Free previews carry a Racana watermark. One payment unlocks this interior forever.
+              {t("watermarkNote")}
             </p>
           )}
 
@@ -342,10 +400,10 @@ function ReadyContent() {
             </div>
             <div>
               <h3 className="font-serif font-bold text-base text-[#1C1917]">
-                Your first pages
+                {t("firstPages")}
               </h3>
               <p className="text-xs text-[#78716C]">
-                Rendered exactly as they'll print — fonts, margins and trim included.
+                {t("firstPagesSub")}
               </p>
             </div>
           </div>
@@ -355,7 +413,7 @@ function ReadyContent() {
               <img
                 key={i}
                 src={`/api/jobs/${jobId}/preview/${i + 1}`}
-                alt={`Preview of page ${i + 1}`}
+                alt={t("previewAlt", { n: i + 1 })}
                 className="w-36 shrink-0 rounded border border-[#E8E2D5] shadow-sm sm:w-44"
                 loading="lazy"
               />
@@ -372,10 +430,10 @@ function ReadyContent() {
           </div>
           <div>
             <h3 className="font-serif font-bold text-base text-[#1C1917]">
-              Share your book
+              {t("shareTitle")}
             </h3>
             <p className="text-xs text-[#78716C]">
-              A beautiful card of your finished interior — nothing public until you share it.
+              {t("shareSub")}
             </p>
           </div>
         </div>
@@ -388,7 +446,7 @@ function ReadyContent() {
             className="w-full rounded-xl border border-[#D6CEBE] bg-[#F8F5EE] py-3 text-xs font-semibold text-[#1C1917] transition-all hover:border-[#1C1917] flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {isSharing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-            Create share link
+            {t("createShareLink")}
           </button>
         ) : (
           <div className="space-y-3">
@@ -404,7 +462,7 @@ function ReadyContent() {
                 }}
                 className="shrink-0 rounded-md border border-[#D6CEBE] px-3 py-1.5 text-[11px] font-semibold text-[#1C1917] hover:border-[#1C1917]"
               >
-                {shareCopied ? "Copied!" : "Copy"}
+                {shareCopied ? t("copied") : t("copy")}
               </button>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -416,7 +474,7 @@ function ReadyContent() {
                 className="flex items-center justify-center gap-2 rounded-xl bg-[#1C1917] py-3 text-xs font-semibold text-[#F8F5EE] hover:bg-[#2E2824]"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                Post on X
+                {t("postOnX")}
               </a>
               <a
                 href={waShareUrl || "#"}
@@ -441,10 +499,10 @@ function ReadyContent() {
           </div>
           <div>
             <h3 className="font-serif font-bold text-base text-[#1C1917]">
-              Email Me the Book
+              {t("emailTitle")}
             </h3>
             <p className="text-xs text-[#78716C]">
-              Receive a backup copy with download link and printing instructions.
+              {t("emailSub")}
             </p>
           </div>
         </div>
@@ -467,7 +525,7 @@ function ReadyContent() {
             ) : (
               <Mail className="w-3.5 h-3.5" />
             )}
-            <span>Send Email</span>
+            <span>{t("emailSend")}</span>
           </button>
         </form>
 
@@ -482,7 +540,7 @@ function ReadyContent() {
           href="/upload"
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#57534E] hover:text-[#1C1917] transition-colors"
         >
-          <span>Format another manuscript</span>
+          <span>{t("formatAnother")}</span>
           <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </div>
@@ -490,15 +548,18 @@ function ReadyContent() {
   );
 }
 
+function ReadyFallback() {
+  const t = useTranslations("Ready");
+  return (
+    <div className="py-20 text-center text-xs text-[#78716C]">
+      {t("loading")}
+    </div>
+  );
+}
+
 export default function ReadyPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="py-20 text-center text-xs text-[#78716C]">
-          Loading completed book...
-        </div>
-      }
-    >
+    <Suspense fallback={<ReadyFallback />}>
       <ReadyContent />
     </Suspense>
   );

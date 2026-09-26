@@ -60,5 +60,5 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 ENV RACANA_ROOT=/app
 
-# Apply the schema (idempotent) then start the standalone server.
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --skip-generate || echo '[boot] prisma db push failed — ensure DATABASE_URL is reachable'; node server.js"]
+# Apply migrations then start the standalone server.
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy || echo '[boot] prisma migrate deploy failed — ensure DATABASE_URL is reachable'; node server.js"]

@@ -2,22 +2,24 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { ProgressBar } from "@/components/ProgressBar";
 import { Upload, FileText, CheckCircle2, AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 import { formatBytes } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 
 const BOOK_TYPES = [
-  { id: "novel", label: "Novel" },
-  { id: "philosophy", label: "Philosophy" },
-  { id: "academic", label: "Academic" },
-  { id: "business", label: "Business" },
-  { id: "memoir", label: "Memoir" },
-  { id: "spiritual", label: "Spiritual" },
-  { id: "other", label: "Other" },
-];
+  { id: "novel", key: "typeNovel" },
+  { id: "philosophy", key: "typePhilosophy" },
+  { id: "academic", key: "typeAcademic" },
+  { id: "business", key: "typeBusiness" },
+  { id: "memoir", key: "typeMemoir" },
+  { id: "spiritual", key: "typeSpiritual" },
+  { id: "other", key: "typeOther" },
+] as const;
 
 export default function UploadPage() {
+  const t = useTranslations("Upload");
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -31,15 +33,15 @@ export default function UploadPage() {
     setError(null);
     const name = selectedFile.name.toLowerCase();
     if (!name.endsWith(".docx") && !name.endsWith(".pdf")) {
-      setError("Please upload a .docx or .pdf manuscript.");
+      setError(t("errType"));
       return;
     }
     if (selectedFile.size === 0) {
-      setError("The selected file is empty (0 bytes).");
+      setError(t("errEmpty"));
       return;
     }
     if (selectedFile.size > 50 * 1024 * 1024) {
-      setError("File exceeds maximum allowed size of 50MB.");
+      setError(t("errSize"));
       return;
     }
     setFile(selectedFile);
@@ -66,7 +68,7 @@ export default function UploadPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) {
-      setError("Please select a DOCX or PDF manuscript first.");
+      setError(t("errNoFile"));
       return;
     }
 
@@ -86,7 +88,7 @@ export default function UploadPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Failed to upload manuscript.");
+        throw new Error(data.error || t("errFailed"));
       }
 
       track("upload_success", { fileName: file.name }, data.jobId);
@@ -104,10 +106,10 @@ export default function UploadPage() {
 
       <div className="text-center mb-8">
         <h1 className="font-serif text-3xl font-bold text-[#1C1917] mb-2">
-          Upload Your Manuscript
+          {t("title")}
         </h1>
         <p className="text-sm text-[#78716C]">
-          Drop your formatted or unformatted draft. We inspect the structure, detect chapters, and prepare it for printing.
+          {t("subtitle")}
         </p>
       </div>
 
@@ -115,7 +117,7 @@ export default function UploadPage() {
         {/* Book Type Selection Chips */}
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wider text-[#57534E] mb-3">
-            1. Select Book Category
+            {t("step1")}
           </label>
           <div className="flex flex-wrap gap-2">
             {BOOK_TYPES.map((type) => {
@@ -131,7 +133,7 @@ export default function UploadPage() {
                       : "bg-[#F8F5EE] border border-[#D6CEBE] text-[#57534E] hover:border-[#1C1917] hover:text-[#1C1917]"
                   }`}
                 >
-                  {type.label}
+                  {t(type.key)}
                 </button>
               );
             })}
@@ -141,7 +143,7 @@ export default function UploadPage() {
         {/* Drag & Drop Upload Zone */}
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wider text-[#57534E] mb-3">
-            2. Choose File (DOCX or PDF)
+            {t("step2")}
           </label>
 
           <div
@@ -149,7 +151,16 @@ export default function UploadPage() {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-2xl p-8 sm:p-12 text-center cursor-pointer transition-all ${
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={t("ariaUpload")}
+            className={`border-2 border-dashed rounded-2xl p-8 sm:p-12 text-center cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A34825] focus-visible:ring-offset-2 ${
               isDragging
                 ? "border-[#A34825] bg-[#A34825]/5 scale-[0.99]"
                 : file
@@ -178,10 +189,10 @@ export default function UploadPage() {
                   {file.name}
                 </div>
                 <div className="text-xs text-[#78716C]">
-                  {formatBytes(file.size)} • Click or drop another file to replace
+                  {formatBytes(file.size)} • {t("fileReplace")}
                 </div>
                 <span className="inline-flex items-center gap-1 text-xs text-[#A34825] font-medium mt-2">
-                  <CheckCircle2 className="w-4 h-4" /> Ready for structure analysis
+                  <CheckCircle2 className="w-4 h-4" /> {t("fileReady")}
                 </span>
               </div>
             ) : (
@@ -191,12 +202,12 @@ export default function UploadPage() {
                 </div>
                 <div>
                   <span className="font-semibold text-sm text-[#1C1917]">
-                    Click to upload
+                    {t("dropTitle")}
                   </span>{" "}
-                  <span className="text-sm text-[#78716C]">or drag and drop</span>
+                  <span className="text-sm text-[#78716C]">{t("dropOr")}</span>
                 </div>
                 <p className="text-xs text-[#A8A29E]">
-                  Microsoft Word (.docx) or PDF <span className="text-[#D97706] font-medium">(beta)</span> • Up to 50MB (5 to 300 pages)
+                  {t("dropHint")}
                 </p>
               </div>
             )}
@@ -225,11 +236,11 @@ export default function UploadPage() {
             {isUploading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Uploading & Analyzing Structure...</span>
+                <span>{t("uploading")}</span>
               </>
             ) : (
               <>
-                <span>Continue to Choose Book Style</span>
+                <span>{t("submit")}</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}

@@ -62,8 +62,26 @@ model User {
 
   jobs          BookJob[]
   payments      Payment[]
+  sessions      Session[]
 
   @@map("users")
+}
+
+// Server-side session registry. The session cookie carries an HMAC-signed
+// payload including `sid` (this row's id), so a compromised cookie can be
+// revoked by setting revokedAt — sign-out actually kills the session.
+model Session {
+  id        String    @id @default(uuid())
+  userId    String
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model BookJob {
@@ -92,6 +110,10 @@ model BookJob {
   emailLogs       EmailLog[]
 
   @@map("book_jobs")
+  @@index([userId])
+  @@index([guestId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model ManuscriptAsset {
@@ -188,6 +210,7 @@ model RenderArtifact {
   job           BookJob   @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@map("render_artifacts")
+  @@index([jobId])
 }
 
 model QAReport {
@@ -202,6 +225,7 @@ model QAReport {
   job         BookJob   @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@map("qa_reports")
+  @@index([jobId])
 }
 
 model Payment {
@@ -210,8 +234,12 @@ model Payment {
   jobId                  String?
   stripeSessionId        String?   @unique
   stripePaymentIntentId  String?   @unique
-  amountCents            Int       @default(2900) // $29.00
-  currency               String    @default("usd")
+  razorpayOrderId        String?   @unique
+  razorpayPaymentId      String?
+  razorpaySignature      String?
+  provider               String    @default("stripe") // "stripe" or "razorpay"
+  amountCents            Int       @default(2900) // $29.00 or ₹2,450
+  currency               String    @default("usd") // "usd" or "inr"
   status                 String    @default("pending") // pending, paid, failed, refunded
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
@@ -220,6 +248,9 @@ model Payment {
   job                    BookJob?  @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
   @@map("payments")
+  @@index([userId])
+  @@index([jobId])
+  @@index([status])
 }
 
 model VerificationToken {
@@ -233,6 +264,8 @@ model VerificationToken {
   createdAt   DateTime  @default(now())
 
   @@map("verification_tokens")
+  @@index([identifier])
+  @@index([expiresAt])
 }
 
 model AnalyticsEvent {
@@ -245,6 +278,10 @@ model AnalyticsEvent {
   createdAt DateTime @default(now())
 
   @@map("analytics_events")
+  @@index([userId])
+  @@index([guestId])
+  @@index([jobId])
+  @@index([event])
 }
 
 model EmailLog {
@@ -260,4 +297,6 @@ model EmailLog {
   job              BookJob?  @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
   @@map("email_logs")
+  @@index([jobId])
+  @@index([recipientEmail])
 }

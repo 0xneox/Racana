@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     const identity = await requireIdentity();
 
     const ip = getClientIp(request);
-    const limit = rateLimit(`upload:${identity.user?.id || identity.guestId}:${ip}`, 15, 60 * 60 * 1000);
+    const limit = await rateLimit(`upload:${identity.user?.id || identity.guestId}:${ip}`, 15, 60 * 60 * 1000);
     if (!limit.allowed) {
       return NextResponse.json(
         { error: "Upload limit reached. Please try again later." },
@@ -69,7 +69,15 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const s3Key = `uploads/${job.id}/${file.name}`;
+    // Sanitize the filename to prevent path traversal in the S3 key.
+    // A filename like "../../etc/passwd" would otherwise become part of the
+    // storage key; for the local-disk fallback this could write outside the
+    // storage directory.
+    const safeFileName = file.name
+      .replace(/[^a-zA-Z0-9._-]/g, "_") // flatten path separators and special chars
+      .replace(/^\.+/, "")               // strip leading dots
+      .slice(0, 100) || "manuscript";    // cap length, fallback if empty
+    const s3Key = `uploads/${job.id}/${safeFileName}`;
     const storageResult = await uploadToStorage(s3Key, buffer, validation.mimeType, "manuscripts");
 
     await prisma.manuscriptAsset.create({

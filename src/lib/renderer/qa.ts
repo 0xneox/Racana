@@ -1,4 +1,3 @@
-import { resolvePdfWorker } from "../pdf-worker";
 import type { RendererOptions, QAReportResult, QAIssue } from "./types";
 
 // Expected physical page size per trim, in PDF points (1pt = 1/72in).
@@ -70,20 +69,10 @@ export async function runPdfQa(
 
   // Text extraction check — a typeset interior must contain selectable text.
   try {
-    const mod: any = await import("pdf-parse");
-    const PDFParse = mod.PDFParse || mod.default?.PDFParse || mod.default;
-    const workerPath = resolvePdfWorker();
-    if (workerPath && typeof PDFParse.setWorker === "function") {
-      PDFParse.setWorker(workerPath);
-    }
-    const parser = new PDFParse({ data: new Uint8Array(pdfBuffer) });
-    try {
-      const textResult = await parser.getText();
-      textLength = (textResult?.text || "").replace(/\s+/g, "").length;
-      textChecked = true;
-    } finally {
-      await parser.destroy?.().catch(() => {});
-    }
+    const { extractTextWithPdfjs } = await import("../manuscript/pdf-parser");
+    const { text } = await extractTextWithPdfjs(pdfBuffer);
+    textLength = text.replace(/\s+/g, "").length;
+    textChecked = true;
   } catch (err) {
     issues.push({
       code: "PDF_TEXT_CHECK_SKIPPED",

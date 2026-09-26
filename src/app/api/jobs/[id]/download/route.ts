@@ -66,7 +66,15 @@ export async function GET(
 
     const fullPaid = isWatermarkFree(job.payments as any[]);
     if (!fullPaid) {
-      pdfBuffer = await addWatermarkOverlayToPdf(pdfBuffer, "RACANA · FREE PREVIEW");
+      try {
+        pdfBuffer = await addWatermarkOverlayToPdf(pdfBuffer, "RACANA · FREE PREVIEW");
+      } catch (watermarkErr) {
+        logServerError("Jobs Download Watermark", watermarkErr);
+        return NextResponse.json(
+          { error: "Could not prepare the preview PDF. Please try again." },
+          { status: 500 }
+        );
+      }
     }
 
     const baseName = (job.manuscriptAsset?.fileName || "manuscript")

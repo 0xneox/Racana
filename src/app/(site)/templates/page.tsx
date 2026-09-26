@@ -2,82 +2,29 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { ProgressBar } from "@/components/ProgressBar";
 import { track } from "@/lib/analytics";
-import { Check, ArrowRight, Book, Feather, Compass, GraduationCap, Library, BookOpen, AlertTriangle, Loader2 } from "lucide-react";
+import { Check, ArrowRight, Book, Feather, Compass, GraduationCap, Library, BookOpen, AlertTriangle, AlertCircle, Loader2 } from "lucide-react";
 
 interface TemplateDef {
   key: string;
-  name: string;
-  personality: string;
-  description: string;
+  /** Templates namespace key (t1–t6) for personality/description/quote */
+  tk: string;
+  /** Styles namespace key (s1–s6) for the shared style name */
+  sk: string;
   icon: typeof Book;
   sampleFont: string;
   previewHeading: string;
-  previewQuote: string;
 }
 
 const TEMPLATES: TemplateDef[] = [
-  {
-    key: "classic",
-    name: "Classic",
-    personality: "Timeless Literary",
-    description: "Traditional Garamond typography with elegant drop caps and classic running headers.",
-    icon: Book,
-    sampleFont: "font-serif",
-    previewHeading: "CHAPTER ONE",
-    previewQuote: "True elegance withstands the passage of decades. Perfect for novels, historical memoirs, and timeless prose.",
-  },
-  {
-    key: "modern",
-    name: "Modern",
-    personality: "Clean Minimal",
-    description: "Crisp sans/serif blend, generous whitespace, asymmetrical chapter titles.",
-    icon: Feather,
-    sampleFont: "font-sans",
-    previewHeading: "01 // INTRODUCTION",
-    previewQuote: "Breathe life into business books, tech insights, and modern non-fiction with confident typographic pacing.",
-  },
-  {
-    key: "philosophy",
-    name: "Philosophy",
-    personality: "Spacious Contemplative",
-    description: "Wide margins for breathing room, subtle section markers, refined proportion.",
-    icon: Compass,
-    sampleFont: "font-serif",
-    previewHeading: "BOOK I • MEDITATION",
-    previewQuote: "Wide gutters and generous outer margins designed for contemplative reflection and margin notes.",
-  },
-  {
-    key: "academic",
-    name: "Academic",
-    personality: "Structured Scholarly",
-    description: "Clear hierarchy, footnote-friendly, rigorous folio layout.",
-    icon: GraduationCap,
-    sampleFont: "font-serif",
-    previewHeading: "SECTION 1.1: METHODOLOGY",
-    previewQuote: "Strict hierarchical subheadings, optimized bottom folios, and seamless footnote placement.",
-  },
-  {
-    key: "literary",
-    name: "Literary",
-    personality: "Elegant Bookstore",
-    description: "Deep typography, deckle-edge feel, poetic rhythm.",
-    icon: Library,
-    sampleFont: "font-serif",
-    previewHeading: "I. THE RIVER RUN",
-    previewQuote: "A rich, evocative typographic density evocative of artisan small-press clothbound editions.",
-  },
-  {
-    key: "indian",
-    name: "Indian Classical",
-    personality: "Traditional Indian",
-    description: "Ornamental chapter openings, taller leading, full Hindi & Indian language support.",
-    icon: Book,
-    sampleFont: "font-serif",
-    previewHeading: "॥ अध्याय एक ॥",
-    previewQuote: "Built for Indian authors — Devanagari, Tamil, and Malayalam manuscripts typeset natively with traditional danda ornaments.",
-  },
+  { key: "classic", tk: "t1", sk: "s1", icon: Book, sampleFont: "font-serif", previewHeading: "CHAPTER ONE" },
+  { key: "modern", tk: "t2", sk: "s2", icon: Feather, sampleFont: "font-sans", previewHeading: "01 // INTRODUCTION" },
+  { key: "philosophy", tk: "t3", sk: "s3", icon: Compass, sampleFont: "font-serif", previewHeading: "BOOK I • MEDITATION" },
+  { key: "academic", tk: "t4", sk: "s4", icon: GraduationCap, sampleFont: "font-serif", previewHeading: "SECTION 1.1: METHODOLOGY" },
+  { key: "literary", tk: "t5", sk: "s5", icon: Library, sampleFont: "font-serif", previewHeading: "I. THE RIVER RUN" },
+  { key: "indian", tk: "t6", sk: "s6", icon: Book, sampleFont: "font-serif", previewHeading: "॥ अध्याय एक ॥" },
 ];
 
 interface DetectedChapter {
@@ -103,6 +50,8 @@ interface AnalysisSummary {
 }
 
 function TemplatesContent() {
+  const t = useTranslations("Templates");
+  const ts = useTranslations("Styles");
   const router = useRouter();
   const searchParams = useSearchParams();
   const jobId = searchParams.get("jobId") || "";
@@ -110,6 +59,7 @@ function TemplatesContent() {
   const [selectedKey, setSelectedKey] = useState<string>("classic");
   const [isSaving, setIsSaving] = useState(false);
   const [analysisLoading, setAnalysisLoading] = useState(true);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisSummary, setAnalysisSummary] = useState<AnalysisSummary | null>(null);
   const [showChapters, setShowChapters] = useState(false);
   const [chapterEdits, setChapterEdits] = useState<Record<number, string>>({});
@@ -159,6 +109,7 @@ function TemplatesContent() {
           setTimeout(poll, 1000);
         } else {
           setAnalysisLoading(false);
+          setAnalysisError(t("analysisSlow"));
         }
       };
       poll();
@@ -221,10 +172,10 @@ function TemplatesContent() {
 
       <div className="text-center mb-10">
         <h1 className="font-serif text-3xl sm:text-4xl font-bold text-[#1C1917] mb-2">
-          Choose Your Book’s Personality
+          {t("title")}
         </h1>
         <p className="text-sm text-[#78716C] max-w-xl mx-auto">
-          Every template is engineered to strict bookstore printing standards with balanced margins, correct folios, and proper spine gutter clearance.
+          {t("subtitle")}
         </p>
       </div>
 
@@ -232,7 +183,7 @@ function TemplatesContent() {
         {analysisLoading && (
           <div className="flex items-center gap-3 text-xs text-[#78716C]">
             <Loader2 className="w-4 h-4 animate-spin text-[#A34825]" />
-            <span>Scanning your manuscript and detecting chapters…</span>
+            <span>{t("scanning")}</span>
           </div>
         )}
         {!analysisLoading && analysisSummary && (
@@ -242,11 +193,17 @@ function TemplatesContent() {
                 <BookOpen className="w-4 h-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-serif text-base font-bold text-[#1C1917] mb-1">Structure detected</h3>
+                <h3 className="font-serif text-base font-bold text-[#1C1917] mb-1">{t("structureDetected")}</h3>
                 <p className="text-sm text-[#57534E] leading-relaxed">
-                  We found <strong>{analysisSummary.chapterCount}</strong> chapters, <strong>{analysisSummary.sectionCount}</strong> sections, and <strong>{analysisSummary.quotationCount}</strong> block quotation{analysisSummary.quotationCount === 1 ? "" : "s"} across an estimated <strong>{analysisSummary.estimatedPages}</strong> pages.
+                  {t.rich("structureSummary", {
+                    chapters: analysisSummary.chapterCount,
+                    sections: analysisSummary.sectionCount,
+                    quotes: analysisSummary.quotationCount,
+                    pages: analysisSummary.estimatedPages,
+                    strong: (chunks) => <strong>{chunks}</strong>,
+                  })}
                   {analysisSummary.detectedTitle && (
-                    <span className="block text-xs text-[#78716C] mt-1 italic">Detected title: “{analysisSummary.detectedTitle}”</span>
+                    <span className="block text-xs text-[#78716C] mt-1 italic">{t("detectedTitle", { title: analysisSummary.detectedTitle })}</span>
                   )}
                 </p>
               </div>
@@ -256,7 +213,7 @@ function TemplatesContent() {
                 )}
                 {analysisSummary.detectedScript && analysisSummary.detectedScript !== "latin" && (
                   <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-[#FFF7ED] border border-[#FDBA74] text-[11px] font-semibold text-[#9A3412]">
-                    {analysisSummary.scriptLabel || analysisSummary.detectedScript} · fonts included
+                    {analysisSummary.scriptLabel || analysisSummary.detectedScript} · {t("fontsIncluded")}
                   </span>
                 )}
               </div>
@@ -264,7 +221,7 @@ function TemplatesContent() {
             {analysisSummary.warningCount > 0 && (
               <div className="text-[11px] text-[#78716C] flex items-center gap-1.5 mb-3">
                 <AlertTriangle className="w-3.5 h-3.5 text-[#D97706]" />
-                <span>{analysisSummary.warningCount} potential formatting note{analysisSummary.warningCount === 1 ? "" : "s"} flagged. No content was changed.</span>
+                <span>{t("warningsFlagged", { count: analysisSummary.warningCount })}</span>
               </div>
             )}
 
@@ -275,7 +232,7 @@ function TemplatesContent() {
                   onClick={() => setShowChapters((v) => !v)}
                   className="text-xs font-semibold text-[#A34825] hover:text-[#8C3C1F] underline"
                 >
-                  {showChapters ? "Hide chapter list" : `Review ${analysisSummary.chapters.length} detected chapters`}
+                  {showChapters ? t("hideChapters") : t("reviewChapters", { count: analysisSummary.chapters.length })}
                 </button>
                 {showChapters && (
                   <div className="mt-3 space-y-1.5 max-h-64 overflow-y-auto pr-1">
@@ -294,18 +251,18 @@ function TemplatesContent() {
                           className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-[#E8E2D5] text-xs text-[#1C1917] focus:outline-none focus:border-[#1C1917] bg-[#FDFBF7]"
                         />
                         <span className="shrink-0 text-[10px] text-[#A8A29E]">
-                          {ch.wordCount > 0 ? `${(ch.wordCount / 1000).toFixed(1)}k words` : ""}
+                          {ch.wordCount > 0 ? t("kWords", { count: (ch.wordCount / 1000).toFixed(1) }) : ""}
                         </span>
                       </div>
                     ))}
                     {analysisSummary.frontMatter.length > 0 && (
                       <p className="text-[10px] text-[#A8A29E] pt-1">
-                        Front matter: {analysisSummary.frontMatter.join(", ")}
+                        {t("frontMatter")}: {analysisSummary.frontMatter.join(", ")}
                       </p>
                     )}
                     {analysisSummary.backMatter.length > 0 && (
                       <p className="text-[10px] text-[#A8A29E]">
-                        Back matter: {analysisSummary.backMatter.join(", ")}
+                        {t("backMatter")}: {analysisSummary.backMatter.join(", ")}
                       </p>
                     )}
                     <div className="flex items-center gap-3 pt-2">
@@ -315,11 +272,11 @@ function TemplatesContent() {
                           onClick={handleSaveStructure}
                           className="px-4 py-1.5 rounded-lg bg-[#1C1917] text-[#F8F5EE] text-xs font-medium hover:bg-[#2E2824]"
                         >
-                          Save chapter titles
+                          {t("saveChapters")}
                         </button>
                       )}
                       {structureSaved && (
-                        <span className="text-[11px] text-[#166534] font-medium">✓ Chapter titles updated</span>
+                        <span className="text-[11px] text-[#166534] font-medium">{t("chaptersSaved")}</span>
                       )}
                     </div>
                   </div>
@@ -327,11 +284,17 @@ function TemplatesContent() {
               </div>
             )}
 
-            <p className="text-[11px] text-[#A8A29E] italic">Your words are untouched. We only apply formatting — never rewrite, silently fix, or edit content.</p>
+            <p className="text-[11px] text-[#A8A29E] italic">{t("untouched")}</p>
           </div>
         )}
         {!analysisLoading && !analysisSummary && (
-          <p className="text-xs text-[#78716C]">Choose a template below to preview styles and continue.</p>
+          <p className="text-xs text-[#78716C]">{t("chooseBelow")}</p>
+        )}
+        {analysisError && (
+          <div className="p-3 rounded-xl bg-[#FEF3C7] border border-[#FCD34D] text-[#92400E] text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{analysisError}</span>
+          </div>
         )}
       </div>
 
@@ -339,12 +302,23 @@ function TemplatesContent() {
         {TEMPLATES.map((tmpl) => {
           const isSelected = selectedKey === tmpl.key;
           const Icon = tmpl.icon;
+          const name = ts(`${tmpl.sk}Name`);
 
           return (
             <div
               key={tmpl.key}
               onClick={() => setSelectedKey(tmpl.key)}
-              className={`rounded-2xl p-6 cursor-pointer transition-all relative flex flex-col justify-between ${
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSelectedKey(tmpl.key);
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={t("selectAria", { name })}
+              aria-pressed={isSelected}
+              className={`rounded-2xl p-6 cursor-pointer transition-all relative flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A34825] focus-visible:ring-offset-2 ${
                 isSelected
                   ? "border-2 border-[#1C1917] bg-[#FDFBF7] shadow-md ring-1 ring-[#1C1917]"
                   : "border border-[#E2DDD2] bg-white hover:border-[#78716C] hover:bg-[#FDFBF7]"
@@ -363,16 +337,16 @@ function TemplatesContent() {
                   </div>
                   <div>
                     <h3 className="font-serif font-bold text-base text-[#1C1917]">
-                      {tmpl.name}
+                      {name}
                     </h3>
                     <span className="text-[11px] font-medium text-[#A34825]">
-                      {tmpl.personality}
+                      {t(`${tmpl.tk}Personality`)}
                     </span>
                   </div>
                 </div>
 
                 <p className="text-xs text-[#78716C] mb-6 leading-relaxed">
-                  {tmpl.description}
+                  {t(`${tmpl.tk}Desc`)}
                 </p>
 
                 {/* Visual Specimen Card */}
@@ -381,15 +355,15 @@ function TemplatesContent() {
                     {tmpl.previewHeading}
                   </div>
                   <p className={`text-xs text-[#44403C] italic leading-relaxed ${tmpl.sampleFont}`}>
-                    “{tmpl.previewQuote}”
+                    “{t(`${tmpl.tk}Quote`)}”
                   </p>
                 </div>
               </div>
 
               <div className="pt-2 border-t border-[#F4EFEA] flex items-center justify-between text-[11px] text-[#78716C]">
-                <span>Print-Ready Interior</span>
+                <span>{t("printReadyInterior")}</span>
                 <span className="font-semibold text-[#1C1917]">
-                  {isSelected ? "Selected" : "Select Style"}
+                  {isSelected ? t("selected") : t("selectStyle")}
                 </span>
               </div>
             </div>
@@ -402,7 +376,7 @@ function TemplatesContent() {
           onClick={() => router.back()}
           className="px-5 py-2.5 rounded-lg border border-[#D6CEBE] text-xs font-medium text-[#57534E] hover:bg-[#F8F5EE]"
         >
-          Back to Upload
+          {t("backToUpload")}
         </button>
 
         <button
@@ -410,7 +384,7 @@ function TemplatesContent() {
           disabled={isSaving}
           className="px-8 py-3 rounded-xl bg-[#1C1917] text-[#F8F5EE] font-medium text-sm hover:bg-[#2E2824] shadow-md hover:shadow-lg transition-all flex items-center gap-2"
         >
-          <span>Continue to Format Settings</span>
+          <span>{t("continueToFormat")}</span>
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>
@@ -418,15 +392,18 @@ function TemplatesContent() {
   );
 }
 
+function TemplatesFallback() {
+  const t = useTranslations("Templates");
+  return (
+    <div className="py-20 text-center text-xs text-[#78716C]">
+      {t("loading")}
+    </div>
+  );
+}
+
 export default function TemplatesPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="py-20 text-center text-xs text-[#78716C]">
-          Loading styles...
-        </div>
-      }
-    >
+    <Suspense fallback={<TemplatesFallback />}>
       <TemplatesContent />
     </Suspense>
   );

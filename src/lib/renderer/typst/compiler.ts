@@ -7,6 +7,12 @@ import type { EmbeddedImage } from "./generator";
 
 const execFileAsync = promisify(execFile);
 
+// Maximum time to let a Typst compile run before killing it.  A normal book
+// takes 2-10 seconds; 120s is a generous ceiling for very large manuscripts.
+// Without this, a pathological document (infinite loop in a script, huge
+// image, etc.) hangs the worker forever.
+const COMPILE_TIMEOUT_MS = 120_000;
+
 async function resolveTypstBin(appRoot: string): Promise<string> {
   const candidates = [
     path.join(appRoot, "bin", "typst.exe"),
@@ -21,6 +27,25 @@ async function resolveTypstBin(appRoot: string): Promise<string> {
     }
   }
   return "typst"; // fallback to system PATH
+}
+
+// Run the Typst binary with a timeout.  Rejects with a clear error if the
+// compile exceeds COMPILE_TIMEOUT_MS.
+async function execTypstWithTimeout(
+  bin: string,
+  args: string[]
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(bin, args, (err) => {
+      clearTimeout(timer);
+      if (err) reject(err);
+      else resolve();
+    });
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("Typst compile timed out after 120 seconds."));
+    }, COMPILE_TIMEOUT_MS);
+  });
 }
 
 export async function compileTypst(
@@ -51,7 +76,7 @@ export async function compileTypst(
 
     const binToUse = await resolveTypstBin(appRoot);
 
-    await execFileAsync(binToUse, [
+    await execTypstWithTimeout(binToUse, [
       "compile",
       "--root",
       appRoot,
@@ -96,7 +121,7 @@ export async function compileTypstPng(
 
     const binToUse = await resolveTypstBin(appRoot);
 
-    await execFileAsync(binToUse, [
+    await execTypstWithTimeout(binToUse, [
       "compile",
       "--root",
       appRoot,

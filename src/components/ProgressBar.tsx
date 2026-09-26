@@ -1,19 +1,17 @@
 import React from "react";
 import { Check } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 interface ProgressBarProps {
   currentStep: 1 | 2 | 3 | 4 | 5;
 }
 
-const STEPS = [
-  { id: 1, label: "Upload" },
-  { id: 2, label: "Style" },
-  { id: 3, label: "Format" },
-  { id: 4, label: "Generate" },
-  { id: 5, label: "Print-Ready" },
-];
+const STEP_KEYS = ["step1", "step2", "step3", "step4", "step5"] as const;
 
 export function ProgressBar({ currentStep }: ProgressBarProps) {
+  const t = useTranslations("ProgressBar");
+  const STEPS = STEP_KEYS.map((key, i) => ({ id: i + 1, label: t(key) }));
+
   return (
     <div className="w-full max-w-2xl mx-auto mb-10 px-4">
       <div className="relative flex items-center justify-between">

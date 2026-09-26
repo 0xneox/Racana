@@ -14,6 +14,7 @@ class InMemoryStore {
   _emailLogs: Map<string, any> = new Map();
   _verificationTokens: Map<string, any> = new Map();
   _analyticsEvents: Map<string, any> = new Map();
+  _sessions: Map<string, any> = new Map();
 
   private generateId() {
     return "id_" + Math.random().toString(36).substring(2, 11) + "_" + Date.now();
@@ -454,6 +455,46 @@ class InMemoryStore {
     deleteMany: async () => {
       const count = this._verificationTokens.size;
       this._verificationTokens.clear();
+      return { count };
+    },
+  };
+
+  // Session (auth revocation)
+  session = {
+    create: async ({ data }: { data: any }) => {
+      const id = data.id || this.generateId();
+      const record = { id, createdAt: new Date(), revokedAt: null, ...data };
+      this._sessions.set(id, record);
+      return record;
+    },
+    findUnique: async ({ where }: any) => {
+      return this._sessions.get(where.id) || null;
+    },
+    update: async ({ where, data }: any) => {
+      const existing = this._sessions.get(where.id);
+      if (!existing) throw new Error("Session not found");
+      const updated = { ...existing, ...data };
+      this._sessions.set(where.id, updated);
+      return updated;
+    },
+    updateMany: async ({ where, data }: any) => {
+      let count = 0;
+      for (const [id, s] of Array.from(this._sessions.entries())) {
+        const idOk = where?.id === undefined || s.id === where.id;
+        const userOk = where?.userId === undefined || s.userId === where.userId;
+        const revokedOk =
+          where?.revokedAt === undefined ||
+          (where.revokedAt === null ? s.revokedAt == null : s.revokedAt != null);
+        if (idOk && userOk && revokedOk) {
+          this._sessions.set(id, { ...s, ...data });
+          count++;
+        }
+      }
+      return { count };
+    },
+    deleteMany: async () => {
+      const count = this._sessions.size;
+      this._sessions.clear();
       return { count };
     },
   };

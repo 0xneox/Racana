@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import prisma from "@/lib/db";
 import {
-  createSessionCookieValue,
   decodeGuestToken,
-  decodeSession,
   GUEST_COOKIE_NAME,
   SESSION_COOKIE_NAME,
 } from "@/lib/auth";
+import {
+  createServerSession,
+  revokeSessionToken,
+  verifySessionToken,
+} from "@/lib/auth/session-store";
 import {
   consumeMagicLinkToken,
   createMagicLink,
@@ -88,7 +91,7 @@ export async function POST(
   if (action === "signin" || action === "callback") {
     try {
       const ip = getClientIp(request);
-      const ipLimit = rateLimit(`signin:ip:${ip}`, 20, 15 * 60 * 1000);
+      const ipLimit = await rateLimit(`signin:ip:${ip}`, 20, 15 * 60 * 1000);
       if (!ipLimit.allowed) {
         return NextResponse.json(
           { error: "Too many sign-in attempts. Please try again later." },
@@ -108,7 +111,7 @@ export async function POST(
         );
       }
 
-      const emailLimit = rateLimit(`signin:email:${email}`, 5, 15 * 60 * 1000);
+      const emailLimit = await rateLimit(`signin:email:${email}`, 5, 15 * 60 * 1000);
       if (!emailLimit.allowed) {
         return NextResponse.json(
           { error: "Too many sign-in links requested. Please check your inbox or try again later." },
@@ -153,6 +156,9 @@ export async function POST(
   }
 
   if (action === "signout") {
+    // Revoke the server-side session BEFORE clearing the cookie — without a
+    // valid cookie we can no longer identify which session to kill.
+    await revokeSessionToken(request.cookies.get(SESSION_COOKIE_NAME)?.value);
     const response = NextResponse.json({ success: true, message: "Signed out" });
     response.cookies.delete(SESSION_COOKIE_NAME);
     return response;
@@ -199,7 +205,7 @@ export async function GET(
       const response = NextResponse.redirect(new URL(target, request.url));
       return setSessionCookie(
         response,
-        await createSessionCookieValue({
+        await createServerSession({
           id: user.id,
           email: user.email,
           name: user.name || "Author",
@@ -302,7 +308,7 @@ export async function GET(
       response.cookies.delete(GOOGLE_STATE_COOKIE);
       return setSessionCookie(
         response,
-        await createSessionCookieValue({
+        await createServerSession({
           id: user.id,
           email: user.email,
           name: user.name || "Author",
@@ -321,11 +327,12 @@ export async function GET(
     if (!cookie?.value) {
       return NextResponse.json({ user: null });
     }
-    const user = await decodeSession(cookie.value);
+    const user = await verifySessionToken(cookie.value);
     return NextResponse.json({ user });
   }
 
   if (action === "signout") {
+    await revokeSessionToken(request.cookies.get(SESSION_COOKIE_NAME)?.value);
     const response = NextResponse.redirect(new URL("/", request.url));
     response.cookies.delete(SESSION_COOKIE_NAME);
     return response;

@@ -1,5 +1,8 @@
 import type { Block, PdfParseResult } from "./types";
 import { resolvePdfWorker } from "../pdf-worker";
+import { resolveAppRoot } from "../app-root";
+import path from "path";
+import { pathToFileURL } from "url";
 
 function trimText(s: string): string {
   return s.replace(/^\s+|\s+$/g, "");
@@ -12,6 +15,14 @@ function trimText(s: string): string {
 // newline, carriage return, and form feed (page break marker).
 function stripControlChars(s: string): string {
   return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+}
+
+// De-hyphenate line-end hyphens within text.  PDF text extraction preserves
+// line breaks, so a word hyphenated at a line end ("cer-\ntain") would
+// otherwise render as "cer tain" — the hyphen becomes a space at the break.
+// This joins such patterns back into "certain".
+function deHyphenateText(s: string): string {
+  return s.replace(/([a-zA-Z])-\n([a-zA-Z])/g, "$1$2");
 }
 
 function countWords(s: string): number {
@@ -194,36 +205,83 @@ function detectQuote(line: string): boolean {
   return false;
 }
 
+// pdf-parse's PDFParse wrapper throws "Object.defineProperty called on
+// non-object" on modern PDFs (including Typst-generated ones). We use the
+// bundled pdfjs-dist engine directly instead — same parser, no wrapper bugs.
+// Text items are grouped into lines by y-coordinate (within tolerance) and
+// sorted by x so multi-column/justified text reconstructs correctly.
+export async function extractTextWithPdfjs(buffer: Buffer): Promise<{ text: string; pageCount: number }> {
+  const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const workerPath = resolvePdfWorker();
+  if (workerPath && pdfjs.GlobalWorkerOptions) {
+    pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
+  }
+  // Bundle-relative resource dirs — CMaps decode non-Latin text (Malayalam,
+  // Devanagari ligatures), standard_fonts covers the 14 base PDF fonts.
+  const pdfjsDir = path.join(
+    resolveAppRoot(),
+    "node_modules",
+    "pdfjs-dist"
+  );
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useSystemFonts: false,
+    isEvalSupported: false,
+    cMapUrl: pathToFileURL(path.join(pdfjsDir, "cmaps")).href + "/",
+    cMapPacked: true,
+    standardFontDataUrl: pathToFileURL(path.join(pdfjsDir, "standard_fonts")).href + "/",
+  }).promise;
+  try {
+    const pages: string[] = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      // pdf.js sets `hasEOL` on the last text item of each visual line —
+      // the same signal pdf-parse used.  Joining on hasEOL reproduces the
+      // original line structure (blank lines between epigraphs, paragraph
+      // breaks, etc.) without fragile y-coordinate bucketing.
+      const parts: string[] = [];
+      for (const item of content.items) {
+        if (!item || typeof item.str !== "string") continue;
+        parts.push(item.str);
+        if (item.hasEOL) parts.push("\n");
+      }
+      pages.push(parts.join(""));
+      page.cleanup?.();
+    }
+    // \f form feed between pages — the structural parser below uses it to
+    // detect page boundaries.
+    return { text: pages.join("\n\f\n"), pageCount: doc.numPages };
+  } finally {
+    await doc.destroy?.().catch(() => {});
+  }
+}
+
 export async function parsePdf(buffer: Buffer): Promise<PdfParseResult> {
   let rawText = "";
   let pageCount = 0;
 
   try {
-    const mod: any = await import("pdf-parse");
-    const PDFParse = mod.PDFParse || mod.default?.PDFParse || mod.default;
-    const workerPath = resolvePdfWorker();
-    if (workerPath && typeof PDFParse.setWorker === "function") {
-      PDFParse.setWorker(workerPath);
-    }
-    const parser = new PDFParse({ data: new Uint8Array(buffer) });
-    try {
-      const info = await parser.getInfo();
-      const textResult = await parser.getText();
-      rawText = textResult?.text || "";
-      pageCount = info?.total || 0;
-    } finally {
-      await parser.destroy?.().catch(() => {});
-    }
+    const result = await extractTextWithPdfjs(buffer);
+    rawText = result.text;
+    pageCount = result.pageCount;
   } catch (pdfParseErr) {
-    console.warn("[PdfParser] pdf-parse failed:", (pdfParseErr as Error)?.message);
+    console.warn("[PdfParser] pdfjs text extraction failed:", (pdfParseErr as Error)?.message);
+    // Do NOT fall back to `buffer.toString("utf8")` — that dumps the raw PDF
+    // bytes (compressed streams, `endstream endobj`, `xref`, `%%EOF`) into the
+    // manuscript text, which then corrupts the generated Typst source with
+    // binary garbage and produces "unclosed delimiter" compile errors (#12).
+    // Instead, count pages from the raw bytes for metadata and return empty
+    // text so the caller can surface a meaningful "couldn't extract text"
+    // error instead of a silently broken book.
     try {
-      rawText = buffer.toString("utf8");
-      const matches = rawText.match(/\/Type[\s]*\/Page[^s]/g);
+      const byteText = buffer.toString("latin1");
+      const matches = byteText.match(/\/Type[\s]*\/Page[^s]/g);
       pageCount = matches ? matches.length : 1;
     } catch {
-      rawText = "";
       pageCount = 0;
     }
+    rawText = "";
   }
 
   void pageCount;
@@ -232,6 +290,8 @@ export async function parsePdf(buffer: Buffer): Promise<PdfParseResult> {
   // (e.g. U+0002, U+0008 in corrupted Devanagari spans).  These would
   // otherwise trigger silent font fallbacks in the rendered PDF (#11).
   rawText = stripControlChars(rawText);
+  // De-hyphenate line-end hyphens so "cer-\ntain" becomes "certain".
+  rawText = deHyphenateText(rawText);
 
   const lines = rawText.split(/\r?\n/);
   const blocks: Block[] = [];

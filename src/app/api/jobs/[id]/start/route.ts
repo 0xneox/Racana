@@ -19,7 +19,7 @@ export async function POST(
     if (ownerRes.error) return ownerRes.error;
 
     const ip = getClientIp(request);
-    const limit = rateLimit(`jobstart:${identity.user?.id || identity.guestId}`, 10, 60 * 60 * 1000);
+    const limit = await rateLimit(`jobstart:${identity.user?.id || identity.guestId}`, 10, 60 * 60 * 1000);
     if (!limit.allowed) {
       return NextResponse.json(
         { error: "Render limit reached. Please try again later." },
@@ -50,6 +50,24 @@ export async function POST(
       }
     }
 
+    // Double-enqueue guard: reject if the job is already in a non-terminal
+    // processing state.  Without this, two rapid POST /start calls run
+    // processBookJob concurrently for the same jobId, creating duplicate
+    // artifacts and interleaving status writes.
+    const processingStates: JobStatus[] = [
+      JobStatus.queued,
+      JobStatus.typesetting,
+      JobStatus.qa,
+      JobStatus.fixing,
+      JobStatus.analyzing,
+    ];
+    if (processingStates.includes(job.status)) {
+      return NextResponse.json(
+        { error: "This book is already being processed. Please wait for it to finish." },
+        { status: 409 }
+      );
+    }
+
     await prisma.bookJob.update({
       where: { id: params.id },
       data: {
@@ -59,11 +77,18 @@ export async function POST(
       },
     });
 
-    await addJobToQueue(job.id, {
+    const dispatch = await addJobToQueue(job.id, {
       task: "render",
       bookType: job.bookType,
       trimSize: job.trimSize,
     });
+    if (!dispatch.success) {
+      logServerError("Job Start API", new Error("Queue dispatch failed for job " + job.id));
+      return NextResponse.json(
+        { error: "Could not start processing. Please try again." },
+        { status: 503 }
+      );
+    }
 
     return NextResponse.json({
       success: true,

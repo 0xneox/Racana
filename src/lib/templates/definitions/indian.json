@@ -50,6 +50,16 @@
       "family": "Noto Serif Devanagari",
       "file": "NotoSerifDevanagari-Regular.ttf",
       "weights": [400, 700]
+    },
+    {
+      "family": "Noto Serif Malayalam",
+      "file": "NotoSerifMalayalam-Regular.ttf",
+      "weights": [400, 700]
+    },
+    {
+      "family": "Noto Serif Tamil",
+      "file": "NotoSerifTamil-Regular.ttf",
+      "weights": [400, 700]
     }
   ]
 }

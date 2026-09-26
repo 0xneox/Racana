@@ -64,7 +64,6 @@ services:
       /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin;
       /usr/bin/mc mb --ignore-existing local/manuscripts;
       /usr/bin/mc mb --ignore-existing local/artifacts;
-      /usr/bin/mc anonymous set download local/artifacts;
       exit 0;
       "
 
@@ -87,7 +86,7 @@ services:
       S3_REGION: us-east-1
       S3_FORCE_PATH_STYLE: "true"
       NEXTAUTH_URL: http://localhost:3000
-      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-development-secret-key-at-least-32-chars-long}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set — generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       RACANA_ROOT: /app
       RESEND_API_KEY: ${RESEND_API_KEY:-}
