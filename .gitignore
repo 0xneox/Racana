@@ -15,13 +15,13 @@ dist/
 .vercel/
 
 # --- Racana Internal Runtime Caches ---
-.storage/
-storage/
-.typst-render-tmp/
-.cache/
-.uploads-tmp/
-test-results/
-playwright-report/
+/.storage/
+/storage/
+/.typst-render-tmp/
+/.cache/
+/.uploads-tmp/
+/test-results/
+/playwright-report/
 
 # --- Secrets & Env ---
 .env
