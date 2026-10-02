@@ -5,7 +5,10 @@ import { GENERIC_INTERNAL_ERROR, logServerError, requireIdentity, requireJobOwne
 import { EMBEDDED_FONT_FAMILIES } from "@/lib/templates/engine";
 
 const TRIM_SIZES = new Set<string>(Object.values(TrimSize));
-const TEMPLATE_KEYS = new Set<string>(Object.values(TemplateKey));
+// Launch catalogue — only the audited templates can be selected for new
+// renders. The engine still renders the others for jobs that already carry
+// them, but they are not offered or accepted here.
+const TEMPLATE_KEYS = new Set<string>([TemplateKey.classic, TemplateKey.modern]);
 const BOOK_TYPES = new Set<string>(Object.values(BookType));
 const PAGE_NUMBER_CHOICES = new Set(["bottom_center", "outer_header"]);
 const MODE_CHOICES = new Set<string>(Object.values(SettingsMode));
@@ -138,27 +141,32 @@ export async function PATCH(
         classic: {
           name: "Classic",
           personality: "Timeless Literary",
-          description: "Traditional Garamond typography with elegant drop caps and classic running headers.",
+          description: "EB Garamond throughout, centred chapter openers with a small-caps chapter number, italic running heads, folios at the foot.",
         },
         modern: {
           name: "Modern",
           personality: "Clean Minimal",
-          description: "Crisp sans/serif blend, generous whitespace, asymmetrical chapter titles.",
+          description: "Source Serif body with Source Sans headings, left-aligned openers with an oversized chapter numeral, block paragraphs, folios in the outer header.",
         },
         philosophy: {
           name: "Philosophy",
           personality: "Spacious Contemplative",
-          description: "Generous margins for contemplative breathing room and subtle section dividers.",
+          description: "Libre Baskerville with wide margins, subtle section markers, generous line-height, refined proportion for contemplative writing.",
         },
         academic: {
           name: "Academic",
           personality: "Structured Scholarly",
-          description: "Rigorous hierarchy, footnote-friendly formatting, and clear folio layout.",
+          description: "Source Serif 4 throughout, rigorous heading hierarchy, footnote-friendly layout, formal folios, disciplined spacing for research & technical works.",
         },
         literary: {
           name: "Literary",
           personality: "Elegant Bookstore",
-          description: "Deep typography, deckle-edge feel, and poetic rhythm for fiction & memoirs.",
+          description: "Libre Baskerville with deep typographic typography, deckle-edge feel, poetic rhythm for distinctive literary voices.",
+        },
+        indian: {
+          name: "Indian Classical",
+          personality: "Traditional Ornamental",
+          description: "Noto Serif Devanagari / Tamil / Malayalam ready, traditional ornamental flourishes and classical typography for Indian-language books.",
         },
       };
 

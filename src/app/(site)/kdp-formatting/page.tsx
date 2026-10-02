@@ -51,7 +51,7 @@ const trimSizes = [
 
 const steps = [
   ["01", "Upload", "Your DOCX or PDF manuscript. DOCX is preferred — it carries real heading structure."],
-  ["02", "Choose", "Pick a trim size and one of six book styles for your paperback."],
+  ["02", "Choose", "Pick a trim size and one of two book styles for your paperback."],
   ["03", "Upload to KDP", "Download the interior PDF, check it in KDP Print Previewer, and publish."],
 ];
 
@@ -62,7 +62,7 @@ const faqs: [string, string][] = [
   ],
   [
     "Does the Racana PDF pass KDP's automated checks?",
-    "Racana builds the interior around KDP's stated requirements — exact page dimensions, binding-aware gutters, embedded fonts, single-PDF output. If KDP ever rejects a Racana interior for a formatting reason, forward the rejection to books@racana.studio within 30 days for a full refund.",
+    "Racana builds the interior around KDP's stated requirements — exact page dimensions, binding-aware gutters, embedded fonts, single-PDF output. If KDP ever rejects a Racana interior for a formatting reason, forward the rejection to books@racana.pro within 30 days for a full refund.",
   ],
   [
     "Do I still need to check the file in KDP Print Previewer?",
@@ -233,7 +233,7 @@ export default function KdpFormattingPage() {
             <li className="flex gap-3">
               <Check className="mt-1 size-4 shrink-0 text-forest" />
               If KDP rejects a Racana interior for a formatting reason, email the rejection to
-              books@racana.studio within 30 days for a full refund.
+              books@racana.pro within 30 days for a full refund.
             </li>
           </ul>
         </div>

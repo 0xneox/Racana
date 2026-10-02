@@ -403,10 +403,10 @@ class InMemoryStore {
     },
     findUnique: async ({ where }: any) => {
       if (where.id) return this._payments.get(where.id) || null;
-      if (where.stripeSessionId) {
+      if (where.razorpayOrderId) {
         return (
           Array.from(this._payments.values()).find(
-            (p) => p.stripeSessionId === where.stripeSessionId
+            (p) => p.razorpayOrderId === where.razorpayOrderId
           ) || null
         );
       }
@@ -414,13 +414,13 @@ class InMemoryStore {
     },
     findFirst: async ({ where }: any) => {
       const rows = Array.from(this._payments.values());
-      return rows.find((p) => p.stripeSessionId === where?.stripeSessionId) || null;
+      return rows.find((p) => p.razorpayOrderId === where?.razorpayOrderId) || null;
     },
     update: async ({ where, data }: any) => {
       let record = where.id ? this._payments.get(where.id) : null;
-      if (!record && where.stripeSessionId) {
+      if (!record && where.razorpayOrderId) {
         record = Array.from(this._payments.values()).find(
-          (p) => p.stripeSessionId === where.stripeSessionId
+          (p) => p.razorpayOrderId === where.razorpayOrderId
         );
       }
       if (!record) throw new Error("Payment not found");

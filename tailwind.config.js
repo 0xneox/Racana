@@ -67,6 +67,8 @@ module.exports = {
         sans: ["var(--font-jakarta)", "Plus Jakarta Sans", "system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
         serif: ["var(--font-playfair)", "Playfair Display", "Georgia", "Cambria", "Times New Roman", "serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "monospace"],
+        poppins: ["var(--font-poppins)", "Poppins", "system-ui", "sans-serif"],
+        devanagari: ["var(--font-devanagari)", "Noto Sans Devanagari", "system-ui", "sans-serif"],
       },
       boxShadow: {
         page: "var(--shadow-page)",

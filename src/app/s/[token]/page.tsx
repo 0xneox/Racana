@@ -71,7 +71,8 @@ export default async function SharePage({ params }: ShareParams) {
     <main className="flex min-h-screen flex-col bg-[#FDFBF7]">
       <header className="border-b border-[#E8E2D5]">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-5">
-          <Link href="/" className="font-serif text-lg font-black tracking-[0.24em] text-[#1C1917]">
+          <Link href="/" className="flex items-center gap-2.5 font-serif text-lg font-black tracking-[0.24em] text-[#1C1917]">
+            <img src="/logo-mark.png" alt="" className="h-8 w-auto" />
             RACANA
           </Link>
           <Link
@@ -108,7 +109,7 @@ export default async function SharePage({ params }: ShareParams) {
               <div className="mx-auto mt-6 h-px w-10 bg-[#A34825]" />
             </div>
             <div className="border-t border-[#D6CEBE] pt-3 text-center text-[8px] uppercase tracking-[0.25em] text-[#A8A29E]">
-              racana.studio
+              racana.pro
             </div>
           </div>
         </div>

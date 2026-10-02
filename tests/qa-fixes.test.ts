@@ -122,12 +122,12 @@ describe("analyzer: chapter structure (#7)", () => {
 // --- Generator fixes (#1, #4, #6, #13) -------------------------------------
 
 describe("generator: ToC dot-leader layout (#1)", () => {
-  it("emits toc_entry blocks as grid rows, not flowing prose", () => {
+  it("replaces the author's ToC with a generated outline — stale page numbers must not print", () => {
     const structure: BookStructureV1 = {
       schemaVersion: 1,
       title: "Test",
       author: "Author",
-      chapterCount: 1,
+      chapterCount: 2,
       estimatedPages: 5,
       warnings: [],
       frontMatter: [
@@ -140,7 +140,10 @@ describe("generator: ToC dot-leader layout (#1)", () => {
           ],
         },
       ],
-      chapters: [],
+      chapters: [
+        { number: 1, title: "Chapter One", wordCount: 100, sections: [{ title: "", blocks: [{ type: "paragraph", text: "Body." }] }] },
+        { number: 2, title: "Chapter Two", wordCount: 100, sections: [{ title: "", blocks: [{ type: "paragraph", text: "Body." }] }] },
+      ],
       backMatter: [],
     };
     const settings = getEffectiveSettings(getTemplate("classic"), "trim_6x9", {});
@@ -150,10 +153,10 @@ describe("generator: ToC dot-leader layout (#1)", () => {
       settings,
       templateName: "classic",
     });
-    // ToC entries should use grid() with dot-leader line, not plain paragraphs.
-    expect(source).toContain("grid(");
-    expect(source).toContain('dash: "dotted"');
-    expect(source).not.toMatch(/^One · The Night.*$/m);
+    // The manuscript's own ToC lists page numbers from the source document —
+    // wrong for the typeset book — so it is regenerated from real headings.
+    expect(source).toContain("#book-toc(");
+    expect(source).not.toContain("The Night the Floor Went");
   });
 });
 
@@ -198,9 +201,8 @@ describe("generator: practice box rendering (#4)", () => {
       settings,
       templateName: "classic",
     });
-    expect(source).toContain("PRACTICE");
-    expect(source).toContain("stroke:");
-    expect(source).toContain("fill:");
+    expect(source).toContain("#practice-box(");
+    expect(source).toContain("<racana-practice>");
     expect(source).toContain("Looking for the Looker");
   });
 });

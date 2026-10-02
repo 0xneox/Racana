@@ -66,14 +66,32 @@ export async function GET(
 
     const fullPaid = isWatermarkFree(job.payments as any[]);
     if (!fullPaid) {
-      try {
-        pdfBuffer = await addWatermarkOverlayToPdf(pdfBuffer, "RACANA · FREE PREVIEW");
-      } catch (watermarkErr) {
-        logServerError("Jobs Download Watermark", watermarkErr);
-        return NextResponse.json(
-          { error: "Could not prepare the preview PDF. Please try again." },
-          { status: 500 }
-        );
+      // Prefer the Typst-rendered preview artifact — its watermark obeys all
+      // the page-furniture rules (no marks on blanks, title, copyright or
+      // part openers).  The post-process overlay is the fallback for jobs
+      // rendered before preview artifacts existed.
+      const previewArtifact = (job.artifacts as any[])?.find(
+        (a: any) => a.artifactType === "interior_preview_pdf"
+      );
+      let served = false;
+      if (previewArtifact?.s3Key) {
+        try {
+          pdfBuffer = await getFromStorage(previewArtifact.s3Key, previewArtifact.s3Bucket || "artifacts");
+          served = true;
+        } catch (previewErr) {
+          logServerError("Jobs Download Preview", previewErr);
+        }
+      }
+      if (!served) {
+        try {
+          pdfBuffer = await addWatermarkOverlayToPdf(pdfBuffer, "Racana free preview");
+        } catch (watermarkErr) {
+          logServerError("Jobs Download Watermark", watermarkErr);
+          return NextResponse.json(
+            { error: "Could not prepare the preview PDF. Please try again." },
+            { status: 500 }
+          );
+        }
       }
     }
 

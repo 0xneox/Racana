@@ -20,6 +20,12 @@ interface StructureData {
   chapters?: { number?: number; title?: string; wordCount?: number; sections?: StructureSection[] }[];
   frontMatter?: { type?: string; title?: string }[];
   backMatter?: { type?: string; title?: string }[];
+  preflight?: {
+    items: { id: string; label: string; status: "ok" | "check"; detail?: string; location?: string }[];
+    estimatedPages: number;
+    belowKdpSpineMinimum: boolean;
+    needsEndPad: boolean;
+  };
 }
 
 export async function GET(
@@ -80,6 +86,9 @@ export async function GET(
         })),
         frontMatter: (data.frontMatter || []).map((f) => f.title || f.type),
         backMatter: (data.backMatter || []).map((b) => b.title || b.type),
+        // Pre-generation checklist — every item renders "Looks right /
+        // Fix it" in the UI; nothing here was auto-changed.
+        preflight: data.preflight || null,
       },
       status: "ready",
     });

@@ -1,0 +1,45 @@
+# Racana — Background Worker (BullMQ consumer + Typst renderer)
+# Runs: npm run worker (scripts/worker.ts)
+# Needs: Dockerfile (already exists in repo — same multi-stage build, but CMD override below runs only the worker)
+
+app = "racana-worker"
+primary_region = "bom"  # Mumbai = lowest latency to Supabase ap-south-1
+
+[build]
+  dockerfile = "Dockerfile.worker"
+
+[env]
+  NODE_ENV = "production"
+  NEXT_TELEMETRY_DISABLED = "1"
+  TYPESETTING_ENGINE = "typst"
+  RACANA_ROOT = "/app"
+  # NO secrets here — use `fly secrets set` (they are redacted from deploys)
+
+[[services]]
+  # Worker doesn't need public HTTP, but Fly requires at least one service for health-checks.
+  # Expose a tiny /health HTTP endpoint via the worker process HTTP wrapper (optional).
+  internal_port = 9090
+  protocol = "tcp"
+  auto_stop_machines = "off"    # NEVER auto-stop the worker (BullMQ needs a persistent connection)
+  auto_start_machines = "off"
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[services.http_checks]]
+    interval = 60000
+    grace_period = "10s"
+    method = "get"
+    path = "/health"
+    protocol = "http"
+    timeout = "5s"
+
+[processes]
+  app = "node scripts/worker.js"  # compiled output of scripts/worker.ts
+
+# 256 MB is plenty for a single 60k-word Typst render + QA.
+# If you ever get OOM kills, upgrade to 512 MB = $1.94/month.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256MB"
+  cpu_kind = "shared"
+  cpus = 1

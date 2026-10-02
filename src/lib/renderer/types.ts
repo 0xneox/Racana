@@ -6,6 +6,17 @@ export interface RendererOptions {
   structure: BookStructureV1;
   settings: EffectiveSettings;
   templateName: string;
+  /**
+   * Free-preview render: stamps the discreet outer-foot watermark line on
+   * content pages only (never on blanks, title, copyright or part openers).
+   * Paid exports omit it entirely.
+   */
+  preview?: boolean;
+  /**
+   * Whether the closing "Typeset by Racana" colophon is emitted.  Optional
+   * for paid exports — defaults to true.
+   */
+  includeColophon?: boolean;
 }
 
 export interface EmbeddedImage {

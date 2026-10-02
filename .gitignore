@@ -64,6 +64,7 @@ $RECYCLE.BIN/
 # --- Typst / PDF local runs (we store in S3, never git) ---
 *.typ
 *.pdf
+/.audit-out/
 *.aux
 *.fdb_latexmk
 *.fls

@@ -13,16 +13,16 @@
     "fontFamily": "EB Garamond",
     "fontSizePt": 11,
     "leadingEm": 1.35,
-    "firstLineIndentMm": 5.0,
+    "firstLineIndentMm": 4.5,
     "paragraphSpacingMm": 0
   },
   "heading": {
     "fontFamily": "EB Garamond",
-    "h1SizePt": 20,
-    "h2SizePt": 15,
-    "h3SizePt": 12.5,
-    "spacingBeforeMm": 12,
-    "spacingAfterMm": 6
+    "h1SizePt": 22,
+    "h2SizePt": 14.5,
+    "h3SizePt": 12,
+    "spacingBeforeMm": 8,
+    "spacingAfterMm": 3
   },
   "margins": {
     "insideMm": 22.22,
@@ -33,7 +33,7 @@
   "layout": {
     "chapterOpenRecto": true,
     "runningHeaders": true,
-    "runningHeaderFormat": "book-title|chapter-title",
+    "runningHeaderFormat": "title_chapter",
     "pageNumbersPosition": "bottom_center",
     "orphanWidowTarget": 2,
     "bleedMm": 3.175,
@@ -49,7 +49,10 @@
     {
       "family": "EB Garamond",
       "file": "EBGaramond-Regular.ttf",
-      "weights": [400, 401, 700]
+      "weights": [
+        400,
+        700
+      ]
     }
   ]
 }

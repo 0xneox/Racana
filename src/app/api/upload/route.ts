@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
         templateKey: TemplateKey.classic,
         name: "Classic",
         personality: "Timeless Literary",
-        description: "Traditional Garamond typography with elegant drop caps and classic running headers.",
+        description: "EB Garamond throughout, centred chapter openers with a small-caps chapter number, italic running heads, folios at the foot.",
       },
     });
 

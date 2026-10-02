@@ -209,6 +209,9 @@ export default function UploadPage() {
                 <p className="text-xs text-[#A8A29E]">
                   {t("dropHint")}
                 </p>
+                <p className="text-[11px] font-medium text-[#A34825]">
+                  {t("dropIndic")}
+                </p>
               </div>
             )}
           </div>

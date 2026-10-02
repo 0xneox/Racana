@@ -20,7 +20,10 @@ import {
   Share2,
   Link2,
   UserPlus,
+  Palette,
+  Book,
 } from "lucide-react";
+import { motion } from "framer-motion";
 import { track } from "@/lib/analytics";
 
 function ReadyContent() {
@@ -53,6 +56,13 @@ function ReadyContent() {
   const [isSharing, setIsSharing] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
+  const [hasCover, setHasCover] = useState(false);
+  const [preflight, setPreflight] = useState<{
+    items: { id: string; label: string; status: "ok" | "check"; detail?: string; location?: string }[];
+    estimatedPages: number;
+    belowKdpSpineMinimum: boolean;
+    needsEndPad: boolean;
+  } | null>(null);
 
   // Email modal state
   const [email, setEmail] = useState("");
@@ -108,6 +118,11 @@ function ReadyContent() {
             setDownloadUrl(`/api/jobs/${jobId}/download`);
             if (Array.isArray(j.artifacts)) {
               setPreviewPages(j.artifacts.filter((a: any) => a.artifactType === "preview_png").length);
+              setHasCover(
+                j.artifacts.some(
+                  (a: any) => a.artifactType === "cover_png" || a.artifactType === "cover_pdf"
+                )
+              );
             }
           }
         })
@@ -116,11 +131,19 @@ function ReadyContent() {
         });
 
     load();
+    // Preflight review checklist — flags found during analysis, for the
+    // author to eyeball ("Looks right / Fix it"). Nothing was auto-changed.
+    fetch(`/api/jobs/${jobId}/structure`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.summary?.preflight) setPreflight(data.summary.preflight);
+      })
+      .catch(() => {});
     fetch("/api/auth/session")
       .then((res) => res.json())
       .then((data) => setIsGuest(!data?.user))
       .catch(() => {});
-    // Returning from Stripe: the webhook may land a moment after redirect —
+    // Returning from Razorpay: the webhook may land a moment after redirect —
     // poll briefly until the payment is confirmed.
     if (justPaid && !isPaid) {
       const interval = setInterval(load, 3000);
@@ -134,57 +157,59 @@ function ReadyContent() {
     setIsCheckingOut(true);
     setCheckoutError(null);
     try {
-      // Try Stripe first (global). If Stripe isn't configured, fall back to
-      // Razorpay (India).
-      const res = await fetch("/api/checkout", {
+      const res = await fetch("/api/checkout/razorpay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId }),
       });
       const data = await res.json();
-
-      if (res.ok && data.url) {
-        window.location.href = data.url;
-        return;
+      if (!res.ok || !data.orderId) {
+        throw new Error(data.error || t("errCheckout"));
       }
 
-      // Stripe unavailable — try Razorpay
-      if (res.status === 503) {
-        const rzpRes = await fetch("/api/checkout/razorpay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId }),
-        });
-        const rzpData = await rzpRes.json();
+      // Load Razorpay checkout.js on demand and open the payment modal.
+      await new Promise<void>((resolve, reject) => {
+        const existing = document.querySelector<HTMLScriptElement>(
+          'script[src="https://checkout.razorpay.com/v1/checkout.js"]'
+        );
+        if (existing) return resolve();
+        const script = document.createElement("script");
+        script.src = "https://checkout.razorpay.com/v1/checkout.js";
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(t("errPayment")));
+        document.body.appendChild(script);
+      });
 
-        if (rzpRes.ok && rzpData.orderId) {
-          // Load Razorpay checkout.js and open the payment modal
-          const script = document.createElement("script");
-          script.src = "https://checkout.razorpay.com/v1/checkout.js";
-          script.onload = () => {
-            const rzp = new (window as any).Razorpay({
-              key: rzpData.keyId,
-              amount: rzpData.amount,
-              currency: rzpData.currency,
-              order_id: rzpData.orderId,
-              name: "Racana",
-              description: rzpData.description,
-              handler: () => {
-                window.location.href = rzpData.successUrl;
-              },
-              modal: { ondismiss: () => setIsCheckingOut(false) },
-              theme: { color: "#1C1917" },
+      const rzp = new (window as any).Razorpay({
+        key: data.keyId,
+        amount: data.amount,
+        currency: data.currency,
+        order_id: data.orderId,
+        name: "Racana",
+        description: data.description,
+        handler: async (resp: any) => {
+          // Verify the payment signature server-side so the download unlocks
+          // even if the Razorpay webhook isn't registered yet.
+          try {
+            await fetch("/api/checkout/razorpay/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jobId,
+                razorpay_order_id: resp.razorpay_order_id,
+                razorpay_payment_id: resp.razorpay_payment_id,
+                razorpay_signature: resp.razorpay_signature,
+              }),
             });
-            rzp.open();
-          };
-          document.body.appendChild(script);
-          return;
-        }
-
-        throw new Error(rzpData.error || data.error || t("errPayment"));
-      }
-
-      throw new Error(data.error || t("errCheckout"));
+          } catch {
+            /* the webhook + status polling still confirm the payment */
+          }
+          window.location.href = data.successUrl;
+        },
+        modal: { ondismiss: () => setIsCheckingOut(false) },
+        theme: { color: "#1C1917" },
+      });
+      rzp.open();
     } catch (err) {
       setCheckoutError((err as Error).message);
       setIsCheckingOut(false);
@@ -330,6 +355,48 @@ function ReadyContent() {
           </div>
         </div>
 
+        {/* Preflight review — flagged items from the manuscript analysis.
+            The author confirms each one; nothing was auto-changed. */}
+        {preflight && preflight.items.length > 0 && (
+          <div className="mt-6 pt-5 border-t border-[#E8E2D5]">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#78716C] mb-3">
+              {t("preflightTitle")}
+            </h3>
+            <ul className="space-y-2">
+              {preflight.items.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex items-start justify-between gap-3 text-xs"
+                >
+                  <div className="min-w-0">
+                    <span className="font-medium text-[#1C1917]">{item.label}</span>
+                    {item.detail && (
+                      <span className="block text-[#A8A29E] mt-0.5 leading-snug">
+                        {item.detail}
+                      </span>
+                    )}
+                  </div>
+                  <span
+                    className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider border ${
+                      item.status === "ok"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : "bg-amber-50 text-amber-800 border-amber-200"
+                    }`}
+                  >
+                    {item.status === "ok" ? t("preflightOk") : t("preflightFix")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {(preflight.belowKdpSpineMinimum || preflight.needsEndPad) && (
+              <p className="mt-3 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                {preflight.belowKdpSpineMinimum && <span>{t("preflightSpine")} </span>}
+                {preflight.needsEndPad && <span>{t("preflightPad")}</span>}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Primary Action Buttons */}
         <div className="pt-6 border-t border-[#E8E2D5] space-y-4">
           {justPaid && isPaid && (
@@ -345,10 +412,11 @@ function ReadyContent() {
           )}
 
           <div className="flex flex-col sm:flex-row gap-4">
-            <a
+            <motion.a
               href={downloadUrl || `/api/jobs/${jobId}/download`}
               download
               onClick={() => track("preview_downloaded", { paid: isPaid }, jobId)}
+              whileHover={{ scale: 1.05, boxShadow: "0 0 8px rgba(255,255,255,0.4)" }}
               className={`flex-1 py-4 px-6 rounded-xl font-medium text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 ${
                 isPaid
                   ? "bg-[#1C1917] text-[#F8F5EE] hover:bg-[#2E2824]"
@@ -357,7 +425,7 @@ function ReadyContent() {
             >
               <Download className="w-4 h-4" />
               <span>{isPaid ? t("downloadPaid") : t("downloadFree")}</span>
-            </a>
+            </motion.a>
 
             {!isPaid && (
               <button
@@ -391,6 +459,98 @@ function ReadyContent() {
         </div>
       </div>
 
+      {/* Two-in-One Publishing Suite: eBook (EPUB) & Cover Studio */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+        {/* eBook EPUB Card */}
+        <div className="bg-white rounded-2xl border border-[#E2DDD2] p-6 shadow-sm flex flex-col justify-between hover:border-[#1C1917] transition-all">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="w-10 h-10 rounded-xl bg-[#F4EFEA] text-[#A34825] flex items-center justify-center">
+                <Book className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                {t("epubReady")}
+              </span>
+            </div>
+            <h3 className="heading-h3 font-serif font-bold text-[#1C1917] mb-1">
+              eBook (EPUB 3.0)
+            </h3>
+            <p className="text-xs text-[#78716C] mb-4">
+              {t("epubSubtitle")}
+            </p>
+          </div>
+          <a
+            href={`/api/jobs/${jobId}/epub`}
+            download
+            className="w-full py-3 px-4 rounded-xl bg-[#1C1917] text-[#F8F5EE] text-xs font-semibold hover:bg-[#2E2824] transition-all flex items-center justify-center gap-2 shadow-sm"
+          >
+            <Download className="w-4 h-4" />
+            <span>{t("downloadEpub")}</span>
+          </a>
+        </div>
+
+        {/* Cover Studio Card */}
+        <div className="bg-white rounded-2xl border border-[#E2DDD2] p-6 shadow-sm flex flex-col justify-between hover:border-[#1C1917] transition-all">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="w-10 h-10 rounded-xl bg-[#F4EFEA] text-[#A34825] flex items-center justify-center">
+                <Palette className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                AI &amp; Print-Ready
+              </span>
+            </div>
+            <h3 className="heading-h3 font-serif font-bold text-[#1C1917] mb-1">
+              {t("coverStudioTitle")}
+            </h3>
+            <p className="text-xs text-[#78716C] mb-4">
+              {t("coverStudioSub")}
+            </p>
+          </div>
+          {hasCover && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={`/api/jobs/${jobId}/cover?export=svg`}
+              alt={t("coverReady")}
+              className="w-full max-h-44 object-contain rounded-lg border border-[#E8E2D5] mb-4 bg-[#FDFBF7]"
+              loading="lazy"
+            />
+          )}
+          <Link
+            href={`/cover?jobId=${jobId}`}
+            className="w-full py-3 px-4 rounded-xl border border-[#D6CEBE] bg-[#F8F5EE] text-[#1C1917] text-xs font-semibold hover:border-[#1C1917] hover:bg-white transition-all flex items-center justify-center gap-2 shadow-sm"
+          >
+            <Sparkles className="w-4 h-4 text-[#A34825]" />
+            <span>{t("designCoverCta")}</span>
+          </Link>
+        </div>
+      </div>
+
+      {/* Publishing checklist — the fastest path from here to a printed book */}
+      <div className="bg-[#FDFBF7] rounded-2xl border border-[#E2DDD2] p-6 sm:p-8 mb-8 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-9 h-9 rounded-lg bg-[#F4EFEA] text-[#A34825] flex items-center justify-center">
+            <Printer className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="font-serif font-bold text-base text-[#1C1917]">
+              {t("pubCheckTitle")}
+            </h3>
+            <p className="text-xs text-[#78716C]">{t("pubCheckSub")}</p>
+          </div>
+        </div>
+        <ol className="space-y-2.5 text-xs text-[#57534E] list-none">
+          {(["pubStep1", "pubStep2", "pubStep3", "pubStep4"] as const).map((key, i) => (
+            <li key={key} className="flex items-start gap-3">
+              <span className="shrink-0 w-5 h-5 rounded-full bg-[#1C1917] text-[#F8F5EE] text-[10px] font-bold flex items-center justify-center mt-px">
+                {i + 1}
+              </span>
+              <span className="leading-5">{t(key)}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
       {/* Page previews — real rendered pages from your interior */}
       {previewPages > 0 && (
         <div className="bg-white rounded-2xl border border-[#E2DDD2] p-6 sm:p-8 mb-8 shadow-sm">
@@ -399,7 +559,7 @@ function ReadyContent() {
               <BookOpen className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="font-serif font-bold text-base text-[#1C1917]">
+              <h3 className="heading-h3 font-serif font-bold text-[#1C1917]">
                 {t("firstPages")}
               </h3>
               <p className="text-xs text-[#78716C]">

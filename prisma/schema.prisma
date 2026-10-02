@@ -38,6 +38,7 @@ enum TemplateKey {
   philosophy
   academic
   literary
+  indian
 }
 
 enum TrimSize {
@@ -232,14 +233,12 @@ model Payment {
   id                     String    @id @default(uuid())
   userId                 String?
   jobId                  String?
-  stripeSessionId        String?   @unique
-  stripePaymentIntentId  String?   @unique
   razorpayOrderId        String?   @unique
   razorpayPaymentId      String?
   razorpaySignature      String?
-  provider               String    @default("stripe") // "stripe" or "razorpay"
-  amountCents            Int       @default(2900) // $29.00 or ₹2,450
-  currency               String    @default("usd") // "usd" or "inr"
+  provider               String    @default("razorpay")
+  amountCents            Int       @default(245000) // ₹2,450 in paise
+  currency               String    @default("inr")
   status                 String    @default("pending") // pending, paid, failed, refunded
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt

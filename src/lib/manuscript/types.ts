@@ -1,5 +1,7 @@
 export type BlockType =
   | "paragraph"
+  /** Paragraph rendered without a first-line indent (after headings/breaks). */
+  | "noindent_paragraph"
   | "heading_h1"
   | "heading_h2"
   | "heading_h3"
@@ -43,6 +45,12 @@ export interface Block {
   blocks?: Block[];
   /** For epigraph: the attribution line. */
   attribution?: string;
+  /**
+   * Detection confidence (0–1) for blocks produced by heuristics —
+   * run-in subheads, glued-heading splits. Values < 0.8 surface in the
+   * preflight report so a human can eyeball them before generating.
+   */
+  confidence?: number;
 }
 
 export interface WarningItem {
@@ -60,6 +68,8 @@ export interface FrontMatterEntry {
 
 export interface ChapterSection {
   title: string;
+  /** Heading level of the section title (2 = `==`, 3 = `===`). Default 2. */
+  level?: number;
   blocks: Block[];
 }
 
@@ -68,6 +78,19 @@ export interface ChapterEntry {
   title: string;
   wordCount: number;
   sections: ChapterSection[];
+  /**
+   * Structural kind: a regular "chapter" opener, a level-0 "part" divider
+   * (own recto page, no folio), or back-matter "matter".
+   * Absent on structures produced by older analyzers — treated as "chapter".
+   */
+  kind?: "chapter" | "part" | "matter";
+  /**
+   * Eyebrow label rendered above the opener in small caps
+   * (e.g. "PART ONE", "CHAPTER SEVEN").
+   */
+  label?: string;
+  /** Part subtitle rendered in italic under the part title. */
+  subtitle?: string;
 }
 
 export interface BackMatterEntry {
@@ -100,11 +123,40 @@ export interface BookStructureV1 {
   frontMatter: FrontMatterEntry[];
   chapters: ChapterEntry[];
   backMatter: BackMatterEntry[];
+  /**
+   * Pre-generation review checklist. Computed by runPreflight() and stored on
+   * the structure so the UI can show "Looks right / Fix it" before rendering.
+   */
+  preflight?: PreflightReport;
+}
+
+export interface PreflightItem {
+  id: string;
+  /** Short checklist label, e.g. "Unbalanced quotation marks". */
+  label: string;
+  /** "ok" = looks right; "check" = flagged for the author to review. */
+  status: "ok" | "check";
+  /** What was found, including a snippet when relevant. */
+  detail?: string;
+  /** Block / chapter reference to help the author locate it. */
+  location?: string;
+}
+
+export interface PreflightReport {
+  items: PreflightItem[];
+  /** Estimated interior page count. */
+  estimatedPages: number;
+  /** KDP spine text requires >= 79 pages. */
+  belowKdpSpineMinimum: boolean;
+  /** True when the estimated count is not a multiple of 2 — needs a blank pad. */
+  needsEndPad: boolean;
 }
 
 export interface DocxParseResult {
   blocks: Block[];
   rawText: string;
+  /** Human-readable log of mechanical text repairs applied during parsing. */
+  fixes?: string[];
 }
 
 export interface PdfParseResult {

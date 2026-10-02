@@ -21,8 +21,8 @@
     "h1SizePt": 18,
     "h2SizePt": 14,
     "h3SizePt": 12,
-    "spacingBeforeMm": 14,
-    "spacingAfterMm": 5
+    "spacingBeforeMm": 8,
+    "spacingAfterMm": 3
   },
   "margins": {
     "insideMm": 23,
@@ -33,7 +33,7 @@
   "layout": {
     "chapterOpenRecto": true,
     "runningHeaders": true,
-    "runningHeaderFormat": "book-title|chapter-title",
+    "runningHeaderFormat": "title_chapter",
     "pageNumbersPosition": "outer_header",
     "orphanWidowTarget": 4,
     "bleedMm": 3.175,
@@ -49,12 +49,18 @@
     {
       "family": "Source Serif 4",
       "file": "SourceSerif4-Regular.ttf",
-      "weights": [400, 401, 700]
+      "weights": [
+        400,
+        700
+      ]
     },
     {
       "family": "Source Sans 3",
       "file": "SourceSans3-Regular.ttf",
-      "weights": [400, 700]
+      "weights": [
+        400,
+        700
+      ]
     }
   ]
 }

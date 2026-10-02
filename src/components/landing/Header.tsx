@@ -21,7 +21,11 @@ export function LandingHeader() {
   return (
     <header className="absolute inset-x-0 top-0 z-50 border-b border-foreground/10 bg-background/95 backdrop-blur-md">
       <div className="mx-auto flex h-18 max-w-[1440px] items-center justify-between px-5 md:px-10 lg:px-16">
-        <a href="#top" className="font-serif text-xl font-black tracking-[0.24em]">
+        <a
+          href="#top"
+          className="flex items-center gap-2.5 font-serif text-xl font-black tracking-[0.24em]"
+        >
+          <img src="/logo-mark.png" alt="" className="h-9 w-auto" />
           RACANA
         </a>
         <nav className="hidden items-center gap-8 text-sm font-medium md:flex">

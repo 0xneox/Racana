@@ -26,7 +26,7 @@ export default function ErrorBoundary({
       <p className="mt-4 max-w-md text-sm leading-6 text-[#78716C]">
         {t.rich("errorDesc", {
           mail: (chunks) => (
-            <a href="mailto:books@racana.studio" className="font-semibold text-[#A34825] underline">
+            <a href="mailto:books@racana.pro" className="font-semibold text-[#A34825] underline">
               {chunks}
             </a>
           ),

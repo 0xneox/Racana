@@ -133,7 +133,9 @@ Services started:
 | `STORAGE_FALLBACK_DIR` | Local disk folder if S3 offline | `./storage` |
 | `NEXTAUTH_URL` | Base URL for auth callbacks | `http://localhost:3000` |
 | `NEXTAUTH_SECRET` | Secret key for session encryption | `development-secret-key-at-least-32-chars-long` |
-| `STRIPE_SECRET_KEY` | Stripe secret key for payments | `sk_test_...` |
+| `RAZORPAY_KEY_ID` | Razorpay key ID for payments | `rzp_test_...` |
+| `RAZORPAY_KEY_SECRET` | Razorpay key secret | `...` |
+| `RAZORPAY_WEBHOOK_SECRET` | Razorpay webhook signing secret | `...` |
 | `RESEND_API_KEY` | Resend API key for transactional emails | `re_...` |
 | `EMAIL_FROM` | Sender address for book deliveries | `books@manuscriptinbookout.com` |
 | `TYPESETTING_ENGINE`| Committed typesetting engine | `typst` |
@@ -151,10 +153,11 @@ The following are live implementations (no stubs) — they activate as soon as r
    - Invokes the bundled `bin/typst` binary to produce the physical PDF interior with embedded open-license fonts.
 2. **Manuscript Analyzer (`src/lib/ai/analyzer.ts`)**:
    - Parses DOCX/PDF locally (mammoth + pdf-parse); optionally enhances title/author/type detection via `OPENAI_COMPATIBLE_BASE_URL` when `OPENAI_API_KEY` is set.
-3. **Stripe Checkout (`src/app/api/checkout/route.ts` + `src/app/api/webhooks/stripe/route.ts`)**:
-   - `POST /api/checkout` creates a Checkout Session ($29 per interior) for a ready job.
-   - The webhook verifies the signature and marks `Payment.status = "paid"`, unlocking the watermark-free download.
-   - Requires `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (use `stripe listen --forward-to localhost:3002/api/webhooks/stripe` in dev).
+3. **Razorpay Checkout (`src/app/api/checkout/razorpay/route.ts` + `src/app/api/webhooks/razorpay/route.ts`)**:
+   - `POST /api/checkout/razorpay` creates a Razorpay order (₹2,450 per interior) for a ready job; the page opens the Razorpay modal.
+   - `POST /api/checkout/razorpay/verify` verifies the payment signature (HMAC-SHA256 of `order_id|payment_id`) and marks `Payment.status = "paid"` — unlocking even without a registered webhook.
+   - `POST /api/webhooks/razorpay` is the belt-and-suspenders path: verifies `x-razorpay-signature` and flips `payment.captured`/`payment.failed`.
+   - Requires `RAZORPAY_KEY_ID` + `RAZORPAY_KEY_SECRET` (+ `RAZORPAY_WEBHOOK_SECRET` for the webhook).
 4. **Resend Email (`src/lib/email/resend.ts`)**:
    - Delivers magic-link sign-in emails and "your book is ready" notifications once `RESEND_API_KEY` is set.
    - In dev without a key, sign-in returns a `devLink` so the flow stays testable.
@@ -165,6 +168,6 @@ The following are live implementations (no stubs) — they activate as soon as r
 ## 🚢 Deploy Checklist
 
 - Run `npx prisma db push` against the production Postgres (creates all tables incl. `verification_tokens`).
-- Set real `DATABASE_URL`, `REDIS_URL`, `NEXTAUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`.
+- Set real `DATABASE_URL`, `REDIS_URL`, `NEXTAUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `RESEND_API_KEY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`.
 - In production the in-memory DB fallback is **disabled** — Postgres must be reachable.
 - Recommended: run via `docker compose up` (includes Postgres, Redis, MinIO).

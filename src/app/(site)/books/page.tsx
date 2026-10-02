@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BookOpen, Loader2, AlertTriangle, CheckCircle2, Clock, ArrowRight } from "lucide-react";
+import { BookOpen, Loader2, AlertTriangle, CheckCircle2, Clock, ArrowRight, Download, Palette, Book } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 interface JobRow {
@@ -114,12 +114,14 @@ export default function BooksPage() {
             const title =
               job.manuscriptAsset?.fileName?.replace(/\.[^/.]+$/, "") || t("untitled");
             return (
-              <button
+              <div
                 key={job.id}
-                onClick={() => router.push(destinationFor(job))}
-                className="w-full text-left bg-white rounded-xl border border-[#E2DDD2] p-5 flex items-center gap-4 hover:border-[#1C1917] hover:shadow-sm transition-all group"
+                className="w-full bg-white rounded-xl border border-[#E2DDD2] p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 hover:border-[#1C1917] hover:shadow-sm transition-all"
               >
-                <div className="w-10 h-10 rounded-lg bg-[#F4EFEA] text-[#A34825] flex items-center justify-center shrink-0">
+                <div
+                  onClick={() => router.push(destinationFor(job))}
+                  className="w-10 h-10 rounded-lg bg-[#F4EFEA] text-[#A34825] flex items-center justify-center shrink-0 cursor-pointer"
+                >
                   {s.tone === "ready" ? (
                     <CheckCircle2 className="w-5 h-5" />
                   ) : s.tone === "failed" ? (
@@ -128,8 +130,11 @@ export default function BooksPage() {
                     <Clock className="w-5 h-5" />
                   )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-serif font-bold text-sm text-[#1C1917] truncate">
+                <div
+                  onClick={() => router.push(destinationFor(job))}
+                  className="flex-1 min-w-0 cursor-pointer"
+                >
+                  <div className="font-serif font-bold text-sm text-[#1C1917] truncate hover:text-[#A34825] transition-colors">
                     {title}
                   </div>
                   <div className="text-[11px] text-[#78716C] mt-0.5">
@@ -140,18 +145,44 @@ export default function BooksPage() {
                     · {new Date(job.createdAt).toLocaleDateString()}
                   </div>
                 </div>
-                <span
-                  className={`shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full ${
-                    s.tone === "ready"
-                      ? "bg-[#1C1917] text-white"
-                      : s.tone === "failed"
-                      ? "bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5]"
-                      : "bg-[#F4EFEA] text-[#57534E]"
-                  }`}
-                >
-                  {s.text}
-                </span>
-              </button>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                  {s.tone === "ready" && (
+                    <div className="flex items-center gap-1.5 mr-1">
+                      <Link
+                        href={`/cover?jobId=${job.id}`}
+                        className="px-2.5 py-1 rounded-lg border border-[#D6CEBE] bg-[#F8F5EE] text-[11px] font-semibold text-[#1C1917] hover:border-[#1C1917] flex items-center gap-1 transition-all"
+                        title="Design Cover"
+                      >
+                        <Palette className="w-3 h-3 text-[#A34825]" />
+                        <span>Cover</span>
+                      </Link>
+                      <a
+                        href={`/api/jobs/${job.id}/epub`}
+                        download
+                        className="px-2.5 py-1 rounded-lg border border-[#D6CEBE] bg-[#F8F5EE] text-[11px] font-semibold text-[#1C1917] hover:border-[#1C1917] flex items-center gap-1 transition-all"
+                        title="Download eBook (EPUB)"
+                      >
+                        <Book className="w-3 h-3 text-emerald-700" />
+                        <span>ePub</span>
+                      </a>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => router.push(destinationFor(job))}
+                    className={`shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full ${
+                      s.tone === "ready"
+                        ? "bg-[#1C1917] text-white"
+                        : s.tone === "failed"
+                        ? "bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5]"
+                        : "bg-[#F4EFEA] text-[#57534E]"
+                    }`}
+                  >
+                    {s.text}
+                  </button>
+                </div>
+              </div>
             );
           })}
         </div>

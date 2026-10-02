@@ -288,13 +288,15 @@ async function processBookJobInner(jobId: string, pacingMs = 0) {
       structure: data,
       settings: effectiveSettings,
       templateName: templateKey,
+      includeColophon: (job.settings as any)?.includeColophon !== false,
     });
 
     // 4. Layout generated — Typst compiles the interior PDF
     await mark(3);
     const { compileTypst } = await import("../renderer/typst/compiler");
+    const { padPdfToMultiple } = await import("../renderer/publication-renderer");
     const fontsDir = path.join(resolveAppRoot(), "src", "lib", "renderer", "fonts");
-    const pdfBuffer = await compileTypst(source, fontsDir, images);
+    const pdfBuffer = await padPdfToMultiple(await compileTypst(source, fontsDir, images), 4);
 
     // 5. Images checked — every declared image embedded and decodable
     await mark(4);
@@ -347,6 +349,41 @@ async function processBookJobInner(jobId: string, pacingMs = 0) {
       },
     });
 
+    // Free-preview artifact: the same interior rendered with the discreet
+    // Typst-side watermark (outer foot margin, content pages only — Typst
+    // knows exactly which pages are blanks, part openers, etc.).  This is
+    // what unpaid downloads receive; paid exports get the clean artifact.
+    try {
+      const previewGen = generateTypstSource({
+        jobId,
+        structure: data,
+        settings: effectiveSettings,
+        templateName: templateKey,
+        preview: true,
+        includeColophon: (job.settings as any)?.includeColophon !== false,
+      });
+      const previewPdf = await padPdfToMultiple(
+        await compileTypst(previewGen.source, fontsDir, previewGen.images), 4
+      );
+      const previewKey = `artifacts/${jobId}/interior_preview.pdf`;
+      await uploadToStorage(previewKey, previewPdf, "application/pdf", "artifacts");
+      await prisma.renderArtifact.create({
+        data: {
+          jobId,
+          artifactType: "interior_preview_pdf",
+          s3Key: previewKey,
+          s3Bucket: "artifacts",
+          fileSizeBytes: previewPdf.length,
+          downloadUrl: `/api/jobs/${jobId}/download`,
+          mimeType: "application/pdf",
+        },
+      });
+    } catch (previewErr) {
+      // A preview-render failure must never block a finished clean render —
+      // the download route falls back to the post-process overlay.
+      console.warn(`[Worker] Preview-PDF render skipped for ${jobId}:`, (previewErr as Error).message);
+    }
+
     // In-app page previews (first pages as PNGs) — best effort: a preview
     // failure must never take down a finished book.
     try {
@@ -374,6 +411,33 @@ async function processBookJobInner(jobId: string, pacingMs = 0) {
       }
     } catch (previewErr) {
       console.warn(`[Worker] Preview generation skipped for ${jobId}:`, (previewErr as Error).message);
+    }
+
+    // EPUB generation (Kindle & Google Play Books ready) — best-effort pre-render
+    try {
+      const { generateEpub } = await import("../epub/generator");
+      const bookTitle = structure?.detectedTitle || job.manuscriptAsset?.fileName?.replace(/\.[^/.]+$/, "") || "Untitled";
+      const bookAuthor = structure?.detectedAuthor || "Author";
+      const epubBuffer = await generateEpub({
+        title: bookTitle,
+        author: bookAuthor,
+        structure: data,
+      });
+      const epubKey = `artifacts/${jobId}/ebook.epub`;
+      await uploadToStorage(epubKey, epubBuffer, "application/epub+zip", "artifacts");
+      await prisma.renderArtifact.create({
+        data: {
+          jobId,
+          artifactType: "epub",
+          s3Key: epubKey,
+          s3Bucket: "artifacts",
+          fileSizeBytes: epubBuffer.length,
+          downloadUrl: `/api/jobs/${jobId}/epub`,
+          mimeType: "application/epub+zip",
+        },
+      });
+    } catch (epubErr) {
+      console.warn(`[Worker] EPUB pre-render skipped for ${jobId}:`, (epubErr as Error).message);
     }
 
     // 8. Book ready — artifact exists before this status is visible

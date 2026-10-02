@@ -21,8 +21,8 @@
     "h1SizePt": 21,
     "h2SizePt": 15.5,
     "h3SizePt": 12.5,
-    "spacingBeforeMm": 16,
-    "spacingAfterMm": 8
+    "spacingBeforeMm": 9,
+    "spacingAfterMm": 3
   },
   "margins": {
     "insideMm": 22,
@@ -33,7 +33,7 @@
   "layout": {
     "chapterOpenRecto": true,
     "runningHeaders": true,
-    "runningHeaderFormat": "author-name|chapter-title",
+    "runningHeaderFormat": "title_author",
     "pageNumbersPosition": "bottom_center",
     "orphanWidowTarget": 2,
     "bleedMm": 3.175,
@@ -49,7 +49,10 @@
     {
       "family": "Libre Baskerville",
       "file": "LibreBaskerville-Regular.ttf",
-      "weights": [400, 401, 700]
+      "weights": [
+        400,
+        700
+      ]
     }
   ]
 }

@@ -31,7 +31,7 @@ export default function PrivacyPage() {
             Manuscripts and generated book interiors are stored on encrypted S3-compatible storage.
             Raw manuscripts are retained for 30 days by default so you can re-download and iterate,
             then deleted. You may request earlier deletion at any time by emailing
-            books@racana.studio.
+            books@racana.pro.
           </p>
         </section>
 
@@ -47,7 +47,7 @@ export default function PrivacyPage() {
         <section>
           <h2 className="font-serif font-bold text-lg text-[#1C1917] mb-2">Contact</h2>
           <p>
-            Questions about your data? Email books@racana.studio — a human answers.
+            Questions about your data? Email books@racana.pro — a human answers.
           </p>
         </section>
       </div>

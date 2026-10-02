@@ -16,24 +16,90 @@ const jakarta = Plus_Jakarta_Sans({
   display: "swap",
 });
 
-const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://racana.studio";
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://racana.pro";
 
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
-  title: "Racana",
+  title: {
+    default:
+      "Racana — ₹2,450 · Professional Book Interior Typesetting & Cover Design for Indian Authors",
+    template: "%s — Racana",
+  },
   description:
-    "Professional book interior typesetting for independent authors.",
-  authors: [{ name: "Racana Studio" }],
+    "Upload your DOCX or PDF manuscript and Racana turns it into a professionally typeset, print-ready book interior in minutes. Classic & Modern styles, interactive cover studio with classical motifs, EPUB 3 export, and native Devanagari, Tamil & Malayalam rendering. ₹2,450 per finished book with free preview.",
+  keywords: [
+    "book formatting",
+    "book typesetting",
+    "interior design",
+    "print on demand",
+    "KDP formatting",
+    "IngramSpark formatting",
+    "Pothi",
+    "self publishing India",
+    "Malayalam book typesetting",
+    "Tamil book formatting",
+    "Devanagari typesetting",
+    "Hindi book layout",
+    "DOCX to PDF book",
+    "EPUB conversion India",
+    "book cover designer",
+    "interior typesetter cost",
+  ],
+  authors: [{ name: "Racana Studio", url: appUrl }],
+  creator: "Racana Studio",
+  publisher: "Racana Studio",
+  category: "Design Application",
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     siteName: "Racana",
-    title: "Racana",
+    title:
+      "Racana — ₹2,450 · Professional Book Interior Typesetting & Cover Design for Indian Authors",
     description:
-      "Professional book interior typesetting for independent authors.",
+      "Upload DOCX → Choose Style → Get a print-ready interior in minutes. Indian-script native rendering, cover studio + EPUB included. Free preview.",
     type: "website",
     url: appUrl,
+    locale: "en_IN",
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "Racana — Book interior publisher for Indian authors. Upload your manuscript. Get a finished book.",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
+    title:
+      "Racana — ₹2,450 · Book Interior Typesetting & Cover Design for Indian Authors",
+    description:
+      "Free preview. Classic + Modern styles. Devanagari, Tamil & Malayalam supported.",
+    images: ["/opengraph-image"],
+    creator: "@racana_studio",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
+  icons: {
+    icon: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/icon-512.png", sizes: "512x512", type: "image/png" }],
+  },
+  applicationName: "Racana",
+  appleWebApp: { capable: true, title: "Racana", statusBarStyle: "default" },
+  formatDetection: { email: false, address: false, telephone: false },
+  verification: {
+    // Drop Google/other verification tokens in here via env later:
+    // google: process.env.NEXT_PUBLIC_GOOGLE_VERIFICATION,
   },
 };
 

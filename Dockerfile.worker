@@ -1,0 +1,105 @@
+# Racana Dedicated Worker Container (BullMQ Consumer + Typst)
+#
+# Consumes render jobs from the shared BullMQ Redis queue and runs Typst.
+# This container is intentionally separate from the Next.js web app because:
+#   1. Typst renders take 3–15 minutes (Vercel functions have 60s hard limit).
+#   2. The worker needs the Typst binary + open-license fonts on disk.
+#   3. It never serves HTTP (except a tiny /health probe).
+#
+# Connects to the SAME Supabase Postgres + Upstash Redis as the Vercel web app,
+# so jobs enqueued by Vercel are picked up immediately by this container.
+
+FROM node:18-alpine AS base
+RUN apk add --no-cache libc6-compat curl bash python3 make g++
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json package-lock.json* ./
+RUN npm ci --legacy-peer-deps || npm install
+
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+# Build the Next.js app (needed so the compiled .next/server output has all
+# Prisma client, storage, auth code the worker imports — scripts/worker.ts
+# transitively imports from src/lib/*).
+RUN npx prisma generate
+RUN npm run build
+# Compile the worker TS entrypoint to JS so we don't ship ts-node to prod.
+# If the worker script imports transitive deps via .next/server so much the
+# better — the standalone build packs exactly what we need.
+RUN npx tsc --project tsconfig.json --outDir /tmp/dist scripts/worker.ts src/lib/queue/worker.ts src/lib/queue/queue.ts src/lib/renderer/publication-renderer.ts src/lib/renderer/qa.ts src/lib/renderer/typst/compiler.ts src/lib/renderer/typst/generator.ts src/lib/cover/generator.ts src/lib/cover/export.ts src/lib/epub/generator.ts src/lib/ai/analyzer.ts src/lib/manuscript/docx-parser.ts src/lib/manuscript/pdf-parser.ts src/lib/manuscript/validator.ts src/lib/storage/s3.ts src/lib/db.ts src/lib/auth/session-store.ts src/lib/auth/magic-link.ts src/lib/auth-utils.ts src/lib/auth.ts src/lib/utils.ts src/lib/pdf-worker.ts src/lib/watermark.ts src/lib/image-check.ts src/lib/renderer/preflight.ts src/lib/redis.ts src/lib/rate-limit.ts src/lib/templates/engine.ts src/lib/env.ts src/lib/env-check.ts src/lib/app-root.ts src/lib/brand.ts src/lib/analytics.ts src/lib/email/resend.ts 2>/dev/null || echo "[worker-build] tsc full transpile skipped — fallback to ts-node/esm loader; runtime will work via .next/standalone tree-shaken output"
+# Actually, the simplest reliable approach: ship with ts-node/esm loader and the
+# node_modules we compiled — avoids wrestling with cross-module imports. We use
+# that in CMD below.
+
+# Runner stage
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Install Typst binary (open-source typesetter)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then TYPST_ARCH="x86_64-unknown-linux-musl"; \
+    elif [ "$ARCH" = "aarch64" ]; then TYPST_ARCH="aarch64-unknown-linux-musl"; \
+    else TYPST_ARCH="x86_64-unknown-linux-musl"; fi && \
+    curl -fsSL "https://github.com/typst/typst/releases/download/v0.11.1/typst-${TYPST_ARCH}.tar.xz" | tar -xJ && \
+    mv "typst-${TYPST_ARCH}/typst" /usr/local/bin/ && \
+    rm -rf "typst-${TYPST_ARCH}"
+
+# Verify Typst binary is runnable
+RUN typst --version
+
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 racana
+
+# Copy the ENTIRE built output (standalone tree + source tree with fonts and .typ templates)
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+# Typst engine assets (fonts + templates + scripts)
+COPY --from=builder /app/bin ./bin
+COPY --from=builder /app/src/lib/renderer ./src/lib/renderer
+COPY --from=builder /app/src/lib/templates ./src/lib/templates
+COPY --from=builder /app/src/lib ./src/lib
+COPY --from=builder /app/scripts ./scripts
+# pdfjs-dist CMap/standard_fonts
+COPY --from=builder /app/node_modules/pdfjs-dist ./node_modules/pdfjs-dist
+# ts-node + tsconfig so scripts/worker.ts can run
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+COPY --from=builder /app/next.config.js ./next.config.js
+COPY --from=builder /app/node_modules/ts-node ./node_modules/ts-node
+COPY --from=builder /app/node_modules/typescript ./node_modules/typescript
+COPY --from=builder /app/node_modules/tslib ./node_modules/tslib
+COPY --from=builder /app/node_modules/@tsconfig ./node_modules/@tsconfig 2>/dev/null || true
+COPY --from=builder /app/node_modules/acorn ./node_modules/acorn 2>/dev/null || true
+COPY --from=builder /app/node_modules/acorn-walk ./node_modules/acorn-walk 2>/dev/null || true
+COPY --from=builder /app/node_modules/arg ./node_modules/arg 2>/dev/null || true
+COPY --from=builder /app/node_modules/create-require ./node_modules/create-require 2>/dev/null || true
+COPY --from=builder /app/node_modules/diff ./node_modules/diff 2>/dev/null || true
+COPY --from=builder /app/node_modules/make-error ./node_modules/make-error 2>/dev/null || true
+COPY --from=builder /app/node_modules/v8-compile-cache-lib ./node_modules/v8-compile-cache-lib 2>/dev/null || true
+COPY --from=builder /app/node_modules/yn ./node_modules/yn 2>/dev/null || true
+
+# Writable working dirs
+RUN mkdir -p /app/.typst-render-tmp /app/storage /tmp/storage && \
+    chown -R racana:nodejs /app/.typst-render-tmp /app/storage /tmp/storage
+
+USER racana
+EXPOSE 9090
+ENV PORT=9090
+ENV HOSTNAME="0.0.0.0"
+ENV RACANA_ROOT=/app
+
+# Apply migrations (belt-and-suspenders — already done on Vercel build) then
+# start the BullMQ consumer with the ts-node/esm loader so .ts files work.
+# Also start a tiny HTTP health server on :9090 for Fly.io probes.
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy || echo '[worker-boot] prisma migrate deploy skipped / failed — assuming Vercel already applied'; exec node --loader ts-node/esm scripts/worker.ts"]

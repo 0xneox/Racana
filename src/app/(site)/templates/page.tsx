@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { ProgressBar } from "@/components/ProgressBar";
 import { track } from "@/lib/analytics";
-import { Check, ArrowRight, Book, Feather, Compass, GraduationCap, Library, BookOpen, AlertTriangle, AlertCircle, Loader2 } from "lucide-react";
+import { Check, ArrowRight, Book, Feather, BookOpen, AlertTriangle, AlertCircle, Loader2 } from "lucide-react";
 
 interface TemplateDef {
   key: string;
@@ -18,13 +18,12 @@ interface TemplateDef {
   previewHeading: string;
 }
 
+// Launch catalogue: only the two templates that have been through the full
+// print-quality audit are offered.  The engine still knows the others for
+// existing jobs, but they are not sold.
 const TEMPLATES: TemplateDef[] = [
   { key: "classic", tk: "t1", sk: "s1", icon: Book, sampleFont: "font-serif", previewHeading: "CHAPTER ONE" },
-  { key: "modern", tk: "t2", sk: "s2", icon: Feather, sampleFont: "font-sans", previewHeading: "01 // INTRODUCTION" },
-  { key: "philosophy", tk: "t3", sk: "s3", icon: Compass, sampleFont: "font-serif", previewHeading: "BOOK I • MEDITATION" },
-  { key: "academic", tk: "t4", sk: "s4", icon: GraduationCap, sampleFont: "font-serif", previewHeading: "SECTION 1.1: METHODOLOGY" },
-  { key: "literary", tk: "t5", sk: "s5", icon: Library, sampleFont: "font-serif", previewHeading: "I. THE RIVER RUN" },
-  { key: "indian", tk: "t6", sk: "s6", icon: Book, sampleFont: "font-serif", previewHeading: "॥ अध्याय एक ॥" },
+  { key: "modern", tk: "t2", sk: "s2", icon: Feather, sampleFont: "font-sans", previewHeading: "1  INTRODUCTION" },
 ];
 
 interface DetectedChapter {
@@ -41,6 +40,7 @@ interface AnalysisSummary {
   warningCount: number;
   detectedBookType: string | null;
   detectedTitle: string | null;
+  detectedAuthor: string | null;
   detectedScript: string | null;
   scriptLabel: string | null;
   estimatedPages: number;
@@ -57,6 +57,7 @@ function TemplatesContent() {
   const jobId = searchParams.get("jobId") || "";
 
   const [selectedKey, setSelectedKey] = useState<string>("classic");
+  const [hasSavedChoice, setHasSavedChoice] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [analysisLoading, setAnalysisLoading] = useState(true);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -64,6 +65,12 @@ function TemplatesContent() {
   const [showChapters, setShowChapters] = useState(false);
   const [chapterEdits, setChapterEdits] = useState<Record<number, string>>({});
   const [structureSaved, setStructureSaved] = useState(false);
+  // Title and author are printed on the half-title, title page, copyright
+  // page and running heads — they must be confirmed by the author, never
+  // guessed silently.
+  const [bookTitle, setBookTitle] = useState("");
+  const [bookAuthor, setBookAuthor] = useState("");
+  const [metaTouched, setMetaTouched] = useState(false);
 
   useEffect(() => {
     if (jobId) {
@@ -72,6 +79,7 @@ function TemplatesContent() {
         .then((data) => {
           if (data?.job?.templateChoice?.templateKey) {
             setSelectedKey(data.job.templateChoice.templateKey);
+            setHasSavedChoice(true);
           }
         })
         .catch(() => {});
@@ -92,6 +100,7 @@ function TemplatesContent() {
                 warningCount: Number(json.summary.warningCount) || 0,
                 detectedBookType: json.summary.detectedBookType || null,
                 detectedTitle: json.summary.detectedTitle || null,
+                detectedAuthor: json.summary.detectedAuthor || null,
                 detectedScript: json.summary.detectedScript || null,
                 scriptLabel: json.summary.scriptLabel || null,
                 estimatedPages: Number(json.summary.estimatedPages) || 0,
@@ -99,6 +108,8 @@ function TemplatesContent() {
                 frontMatter: Array.isArray(json.summary.frontMatter) ? json.summary.frontMatter : [],
                 backMatter: Array.isArray(json.summary.backMatter) ? json.summary.backMatter : [],
               });
+              setBookTitle((prev) => prev || json.summary.detectedTitle || "");
+              setBookAuthor((prev) => prev || json.summary.detectedAuthor || "");
               setAnalysisLoading(false);
               return;
             }
@@ -119,18 +130,44 @@ function TemplatesContent() {
     }
   }, [jobId]);
 
+  // Recommend a template from what the analyzer learned: an Indic-script
+  // manuscript needs the dedicated Indic design; otherwise map book type.
+  // Indic-script manuscripts work in both: the renderer swaps in the Noto
+  // family for the detected script automatically.
+  const recommendedKey = useMemo(() => {
+    if (!analysisSummary) return null;
+    switch (analysisSummary.detectedBookType) {
+      case "academic":
+      case "business":
+        return "modern";
+      default:
+        return "classic";
+    }
+  }, [analysisSummary]);
+
+  // Pre-select the recommendation — an explicit saved choice always wins.
+  useEffect(() => {
+    if (recommendedKey && !hasSavedChoice) {
+      setSelectedKey(recommendedKey);
+    }
+  }, [recommendedKey, hasSavedChoice]);
+
+  const structurePayload = () => ({
+    title: bookTitle.trim(),
+    author: bookAuthor.trim(),
+    chapters: Object.entries(chapterEdits).map(([index, title]) => ({
+      index: Number(index),
+      title,
+    })),
+  });
+
   const handleSaveStructure = async () => {
     if (!jobId || Object.keys(chapterEdits).length === 0) return;
     try {
       const res = await fetch(`/api/jobs/${jobId}/structure`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chapters: Object.entries(chapterEdits).map(([index, title]) => ({
-            index: Number(index),
-            title,
-          })),
-        }),
+        body: JSON.stringify(structurePayload()),
       });
       if (res.ok) {
         setStructureSaved(true);
@@ -153,6 +190,13 @@ function TemplatesContent() {
     if (jobId) {
       setIsSaving(true);
       try {
+        if (metaTouched || Object.keys(chapterEdits).length > 0) {
+          await fetch(`/api/jobs/${jobId}/structure`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(structurePayload()),
+          });
+        }
         await fetch(`/api/jobs/${jobId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -202,10 +246,31 @@ function TemplatesContent() {
                     pages: analysisSummary.estimatedPages,
                     strong: (chunks) => <strong>{chunks}</strong>,
                   })}
-                  {analysisSummary.detectedTitle && (
-                    <span className="block text-xs text-[#78716C] mt-1 italic">{t("detectedTitle", { title: analysisSummary.detectedTitle })}</span>
-                  )}
                 </p>
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="block text-[11px] font-semibold text-[#57534E] mb-1">{t("bookTitleLabel")}</span>
+                    <input
+                      type="text"
+                      value={bookTitle}
+                      maxLength={200}
+                      onChange={(e) => { setMetaTouched(true); setBookTitle(e.target.value); }}
+                      className="w-full px-3 py-2 rounded-lg border border-[#E8E2D5] text-sm text-[#1C1917] focus:outline-none focus:border-[#1C1917] bg-[#FDFBF7]"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[11px] font-semibold text-[#57534E] mb-1">{t("authorNameLabel")}</span>
+                    <input
+                      type="text"
+                      value={bookAuthor}
+                      maxLength={120}
+                      placeholder={t("authorPlaceholder")}
+                      onChange={(e) => { setMetaTouched(true); setBookAuthor(e.target.value); }}
+                      className="w-full px-3 py-2 rounded-lg border border-[#E8E2D5] text-sm text-[#1C1917] focus:outline-none focus:border-[#1C1917] bg-[#FDFBF7]"
+                    />
+                  </label>
+                </div>
+                <p className="text-[11px] text-[#A8A29E] mt-1.5">{t("titleAuthorHint")}</p>
               </div>
               <div className="shrink-0 self-start flex flex-col items-end gap-1.5">
                 {analysisSummary.detectedBookType && (
@@ -298,7 +363,7 @@ function TemplatesContent() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12 max-w-3xl mx-auto">
         {TEMPLATES.map((tmpl) => {
           const isSelected = selectedKey === tmpl.key;
           const Icon = tmpl.icon;
@@ -342,6 +407,11 @@ function TemplatesContent() {
                     <span className="text-[11px] font-medium text-[#A34825]">
                       {t(`${tmpl.tk}Personality`)}
                     </span>
+                    {recommendedKey === tmpl.key && (
+                      <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-[#A34825]/10 text-[10px] font-semibold uppercase tracking-wide text-[#A34825]">
+                        {t("recommended")}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -381,7 +451,7 @@ function TemplatesContent() {
 
         <button
           onClick={handleContinue}
-          disabled={isSaving}
+          disabled={isSaving || (!!analysisSummary && !bookTitle.trim())}
           className="px-8 py-3 rounded-xl bg-[#1C1917] text-[#F8F5EE] font-medium text-sm hover:bg-[#2E2824] shadow-md hover:shadow-lg transition-all flex items-center gap-2"
         >
           <span>{t("continueToFormat")}</span>

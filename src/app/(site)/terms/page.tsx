@@ -36,7 +36,7 @@ export default function TermsPage() {
           <h2 className="font-serif font-bold text-lg text-[#1C1917] mb-2">Print refund promise</h2>
           <p>
             If Racana produces a PDF that Amazon KDP rejects for an interior formatting reason,
-            forward the rejection to books@racana.studio within 30 days for a full refund.
+            forward the rejection to books@racana.pro within 30 days for a full refund.
           </p>
         </section>
 
@@ -51,7 +51,7 @@ export default function TermsPage() {
 
         <section>
           <h2 className="font-serif font-bold text-lg text-[#1C1917] mb-2">Contact</h2>
-          <p>books@racana.studio</p>
+          <p>books@racana.pro</p>
         </section>
       </div>
     </div>

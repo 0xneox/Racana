@@ -54,7 +54,7 @@ const formattingElements = [
 
 const steps = [
   ["01", "Upload", "Give us your DOCX or PDF manuscript. Your text is never edited or rewritten."],
-  ["02", "Choose a style", "Pick from six type systems — Classic, Modern, Philosophy, Academic, Literary, or Indian Classical."],
+  ["02", "Choose a style", "Pick one of two type systems — Classic or Modern."],
   ["03", "Download", "Receive a print-ready interior PDF with embedded fonts and binding-aware margins."],
 ];
 

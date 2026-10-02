@@ -40,8 +40,9 @@ export function Header() {
       <div className="mx-auto flex h-18 max-w-[1440px] items-center justify-between px-5 md:px-10 lg:px-16">
         <Link
           href="/"
-          className="font-serif text-xl font-black tracking-[0.24em]"
+          className="flex items-center gap-2.5 font-serif text-xl font-black tracking-[0.24em]"
         >
+          <img src="/logo-mark.png" alt="" className="h-9 w-auto" />
           RACANA
         </Link>
 

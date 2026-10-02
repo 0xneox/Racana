@@ -21,8 +21,8 @@
     "h1SizePt": 22,
     "h2SizePt": 16,
     "h3SizePt": 13.5,
-    "spacingBeforeMm": 14,
-    "spacingAfterMm": 8
+    "spacingBeforeMm": 9,
+    "spacingAfterMm": 3
   },
   "margins": {
     "insideMm": 22.22,
@@ -33,7 +33,7 @@
   "layout": {
     "chapterOpenRecto": true,
     "runningHeaders": true,
-    "runningHeaderFormat": "author-name|chapter-title",
+    "runningHeaderFormat": "title_author",
     "pageNumbersPosition": "bottom_center",
     "orphanWidowTarget": 2,
     "bleedMm": 3.175,
@@ -49,17 +49,26 @@
     {
       "family": "Noto Serif Devanagari",
       "file": "NotoSerifDevanagari-Regular.ttf",
-      "weights": [400, 700]
+      "weights": [
+        400,
+        700
+      ]
     },
     {
       "family": "Noto Serif Malayalam",
       "file": "NotoSerifMalayalam-Regular.ttf",
-      "weights": [400, 700]
+      "weights": [
+        400,
+        700
+      ]
     },
     {
       "family": "Noto Serif Tamil",
       "file": "NotoSerifTamil-Regular.ttf",
-      "weights": [400, 700]
+      "weights": [
+        400,
+        700
+      ]
     }
   ]
 }

@@ -50,32 +50,81 @@ const MIME_TO_EXT: Record<string, string> = {
   "image/tiff": "tiff",
 };
 
+// A contiguous run of Devanagari (plus the separators that live inside a
+// phrase: spaces, dandas, punctuation).  Matched runs get wrapped in
+// `#text(lang: "sa", script: "deva", font: "Noto Serif Devanagari")[…]`.
+const DEVANAGARI_RUN =
+  /[\u0900-\u097F]+(?:[\s,;:!?()\[\]'’“”"\-–—\u0964\u0965]*[\u0900-\u097F]+)*/g;
+
+// Escape + enrich a text node for Typst markup context:
+//  1. Devanagari spans wrapped in an explicit font/language call so the right
+//     font is chosen and hyphenation/tagging use Sanskrit rules.
+//  2. Non-breaking space inside "Ch. 3", "p. 12", "Fig. 4", "No. 7" etc. —
+//     the space is emitted as Typst `~`, which renders as a real nbsp and
+//     extracts as U+00A0 (not a breakable space).
+function inlineText(text: string): string {
+  const pieces: string[] = [];
+  let last = 0;
+  const t = text || "";
+  DEVANAGARI_RUN.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = DEVANAGARI_RUN.exec(t)) !== null) {
+    if (m.index > last) pieces.push(escapeTypst(t.slice(last, m.index)));
+    pieces.push(
+      `#text(lang: "sa", script: "deva", font: "Noto Serif Devanagari")[${escapeTypst(m[0])}]`
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < t.length) pieces.push(escapeTypst(t.slice(last)));
+  return pieces
+    .join("")
+    .replace(/\b(Ch|ch|p|pp|Fig|fig|No|no|Vol|vol|Sec|sec)\. (\d)/g, "$1.~$2");
+}
+
+interface RenderCtx {
+  images: EmbeddedImage[];
+  /** Paper height in inches — needed by practice boxes to decide breakability. */
+  pageHeightIn: number;
+}
+
 // Convert a single content block to Typst source.  Returns the Typst markup
 // for that block; the caller concatenates them in order.
-function convertBlock(block: Block, images: EmbeddedImage[]): string {
+function convertBlock(block: Block, ctx: RenderCtx): string {
   if (!block) return "";
+  const images = ctx.images;
 
   switch (block.type) {
     case "paragraph":
-      return `${escapeTypst(block.text || "")}\n\n`;
+      return `${inlineText(block.text || "")}\n\n`;
 
+    // A paragraph that should not start with a first-line indent — the first
+    // paragraph after a heading or a break.
+    case "noindent_paragraph":
+      return `#par(first-line-indent: 0pt)[${inlineText(block.text || "")}]\n\n`;
+
+    // A level-1 heading that survived inside a chapter body was not a chapter
+    // boundary — render it as a section head so it never triggers the
+    // chapter-opener machinery (page break, numbering, ToC entry).
+    // heading_h2/h3 are sticky via the template's keep-with-next emulation
+    // (Typst 0.11 has no block(sticky:)); see subheading() in classic.typ.
     case "heading_h1":
-      return `= ${escapeTypst(block.text || "")}\n\n`;
-
     case "heading_h2":
-      return `== ${escapeTypst(block.text || "")}\n\n`;
+      return `== ${inlineText(block.text || "")}\n\n`;
 
     case "heading_h3":
-      return `=== ${escapeTypst(block.text || "")}\n\n`;
+      return `=== ${inlineText(block.text || "")}\n\n`;
 
     case "quote":
-      return `#quote(block: true)[${escapeTypst(block.text || "")}]\n\n`;
+      if (block.attribution) {
+        return `#quote(block: true, attribution: [${inlineText(block.attribution)}])[${inlineText(block.text || "")}]\n\n`;
+      }
+      return `#quote(block: true)[${inlineText(block.text || "")}]\n\n`;
 
     case "list_ordered":
-      return (block.items || []).map(item => `+ ${escapeTypst(item)}`).join("\n") + "\n\n";
+      return (block.items || []).map(item => `+ ${inlineText(item)}`).join("\n") + "\n\n";
 
     case "list_unordered":
-      return (block.items || []).map(item => `- ${escapeTypst(item)}`).join("\n") + "\n\n";
+      return (block.items || []).map(item => `- ${inlineText(item)}`).join("\n") + "\n\n";
 
     case "table":
       if (!block.rows || block.rows.length === 0) return "";
@@ -87,14 +136,14 @@ function convertBlock(block: Block, images: EmbeddedImage[]): string {
       for (const row of block.rows) {
         for (let i = 0; i < cols; i++) {
           const cell = row.cells[i];
-          typstTable += `  [${escapeTypst(cell?.text || "")}],\n`;
+          typstTable += `  [${inlineText(cell?.text || "")}],\n`;
         }
       }
       typstTable += `)\n\n`;
       return typstTable;
 
     case "footnote":
-      return `#footnote[${escapeTypst(block.text || "")}]`;
+      return `#footnote[${inlineText(block.text || "")}]`;
 
     case "image": {
       const src = block.src || "";
@@ -122,13 +171,13 @@ function convertBlock(block: Block, images: EmbeddedImage[]): string {
     }
 
     case "caption":
-      return `#align(center)[*${escapeTypst(block.text || "")}*]\n\n`;
+      return `#align(center)[*${inlineText(block.text || "")}*]\n\n`;
 
-    // --- ToC entry: dot-leader tab-stop row (#1) ---------------------------
+    // --- ToC entry: dot-leader tab-stop row ---------------------------------
     // Rendered as a grid with label | dotted line | page number, so the dot
     // leader and page number stay pinned right and never wrap mid-line.
     case "toc_entry": {
-      const label = escapeTypst(block.text || "");
+      const label = inlineText(block.text || "");
       const page = block.page ?? "";
       return `#block(width: 100%)[#grid(
   columns: (auto, 1fr, auto),
@@ -140,38 +189,28 @@ function convertBlock(block: Block, images: EmbeddedImage[]): string {
 )]\n`;
     }
 
-    // --- Practice box: bordered, tinted, with eyebrow label (#4) -----------
-    // The inner blocks (ordered list, paragraphs) are rendered recursively.
+    // --- Practice box: unbreakable bordered block; tall boxes are split by
+    // the template into chunks with a repeated "PRACTICE (CONTINUED)" label.
+    // The metadata marker feeds the "Practices" list in the ToC.
     case "practice_box": {
-      const label = escapeTypst(block.label || "");
-      const inner = (block.blocks || [])
-        .map(b => convertBlock(b, images))
-        .join("");
-      return `#block(
-  inset: 12pt,
-  stroke: 0.5pt + rgb("#8a8178"),
-  fill: rgb("#f5f2ec"),
-  width: 100%,
-)[
-  #text(size: 9pt, tracking: 0.2em, weight: "bold")[PRACTICE]
-  #v(0.05in)
-  #text(size: 13pt, weight: "bold")[${label}]
-  #v(0.15in)
-  ${inner}
-]\n\n`;
+      const label = escapeTypstString(block.label || "");
+      const items = (block.blocks || []).map((b) => `[${convertBlock(b, ctx).trim()}]`);
+      return `#metadata((title: "${label}")) <racana-practice>
+#practice-box("${label}", ${ctx.pageHeightIn}in,
+${items.join(",\n")}
+)\n\n`;
     }
 
-    // --- Epigraph: centered blockquote with attribution (#2, #5) -----------
+    // --- Epigraph: centered italic quote, attribution in small caps ----------
     case "epigraph": {
-      const quote = escapeTypst(block.text || "");
+      const quote = inlineText(block.text || "");
       const attr = block.attribution ? block.attribution.trim() : "";
       if (attr) {
-        const attrEscaped = escapeTypst(attr);
         return `#align(center)[
   #block(inset: (x: 2em))[
     #text(style: "italic")[${quote}]
-    #v(0.3em)
-    #text(size: 0.9em)[— ${attrEscaped}]
+    #v(0.35em)
+    #smallcaps[#text(size: 0.9em)[${inlineText(attr)}]]
   ]
 ]\n\n`;
       }
@@ -182,12 +221,12 @@ function convertBlock(block: Block, images: EmbeddedImage[]): string {
 ]\n\n`;
     }
 
-    // --- Copyright page: small centered text, own page (#2) ----------------
+    // --- Copyright page: small centered text, own page -----------------------
     case "copyright":
       return `#pagebreak(to: "even", weak: true)\n#v(2in)\n#align(center)[#text(size: 8.5pt)[${escapeTypst(block.text || "")}]]\n#pagebreak(to: "even", weak: true)\n\n`;
 
     default:
-      return `${escapeTypst(block.text || "")}\n\n`;
+      return `${inlineText(block.text || "")}\n\n`;
   }
 }
 
@@ -199,11 +238,15 @@ function convertBlock(block: Block, images: EmbeddedImage[]): string {
 // primary font may lack (e.g. ∞ U+221E, which Libre Baskerville doesn't
 // cover) — without it, Typst falls back to system fonts like LinLibertine
 // (#11).
+// Fallback order after the primary body font — spec: ("EB Garamond",
+// "Noto Serif Devanagari", "Noto Serif") with Indic siblings for other
+// scripts and Source Serif 4 as the last Latin fallback.
 const INDIC_FALLBACK_FONTS = [
-  "Source Serif 4",
   "Noto Serif Devanagari",
   "Noto Serif Malayalam",
   "Noto Serif Tamil",
+  "Noto Serif",
+  "Source Serif 4",
 ];
 
 function typstFontList(primary: string): string {
@@ -224,44 +267,142 @@ function countImageBlocks(structure: BookStructureV1): number {
   return n;
 }
 
-// Ordinal word -> number, for chapter eyebrow labels ("One" -> 1).
+
+// Ordinal word -> number, for chapter titles like "One · The Night".
 const ORDINAL_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
   nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
   fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
 };
 
-// Extract the ordinal word from a chapter title like "One · The Night..." or
-// "The Night the Floor Went".  Returns the ordinal label ("ONE") or "" if the
-// title doesn't start with an ordinal.
-function chapterEyebrow(title: string): string {
-  const m = title.match(/^(\w+)\s*[·•]\s+/);
-  if (m && ORDINAL_WORDS[m[1].toLowerCase()]) {
-    return m[1].toUpperCase();
+function fromRoman(s: string): number {
+  const map: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+  let val = 0;
+  for (let i = 0; i < s.length; i++) {
+    const cur = map[s[i]] ?? 0;
+    const next = i + 1 < s.length ? map[s[i + 1]] ?? 0 : 0;
+    if (cur < next) { val += next - cur; i++; } else { val += cur; }
   }
-  return "";
+  return val;
 }
 
-// Strip the ordinal prefix from a chapter title: "One · The Night..." -> "The Night..."
-function stripOrdinal(title: string): string {
-  return title.replace(/^\w+\s*[·•]\s+/, "");
+function parseOrdinal(s: string): number {
+  const t = s.trim();
+  if (/^\d+$/.test(t)) return parseInt(t, 10);
+  if (/^[ivxlcdm]+$/i.test(t)) return fromRoman(t.toUpperCase());
+  return ORDINAL_WORDS[t.toLowerCase()] || 0;
 }
+
+// Headings that are structural units in their own right — never given a
+// "Chapter N" eyebrow.
+const UNNUMBERED_HEADING = /^(book|part|section|prologue|epilogue|introduction|preface|foreword|afterword|appendix|conclusion|acknowledg|interlude|postscript|coda|notes?$|glossary|index$|bibliography|about the author)/i;
+
+export interface ChapterOpener {
+  kind: "chapter" | "part" | "matter";
+  number: number;
+  label: string;
+  title: string;
+  /** Part openers only: italic line under the part title. */
+  subtitle?: string;
+}
+
+// Decide how a chapter heading is presented: eyebrow label + number + title.
+//   "Chapter 3"              -> number 3, title ""         (opener shows "Chapter Three")
+//   "Chapter 3: The Night"   -> number 3, title "The Night"
+//   "3. The Night" / "One · The Night" -> number + title
+//   "Prologue"               -> number 0, title "Prologue"
+//   "Part One — The Break"   -> part divider
+//   "The Beginning"          -> sequential number, title "The Beginning"
+export function resolveChapterOpener(rawTitle: string, sequence: number): ChapterOpener {
+  const title = rawTitle.trim();
+  if (/^part\b/i.test(title)) return { kind: "part", number: 0, label: "", title };
+
+  const explicit = title.match(/^chapter\s+([a-z0-9]+)(?![a-z])[\s:.\-—–·]*(.*)$/i);
+  if (explicit) {
+    const n = parseOrdinal(explicit[1]) || sequence;
+    return { kind: "chapter", number: n, label: "", title: explicit[2].trim() };
+  }
+  const numbered = title.match(/^(\d{1,3}|[ivxlcdm]{1,6}|[a-z]+)\s*[.:·•—–-]\s+(.+)$/i);
+  if (numbered) {
+    const n = parseOrdinal(numbered[1]);
+    if (n > 0) return { kind: "chapter", number: n, label: "", title: numbered[2].trim() };
+  }
+  if (UNNUMBERED_HEADING.test(title)) return { kind: "chapter", number: 0, label: "", title };
+  return { kind: "chapter", number: sequence, label: "", title };
+}
+
+function openerCall(o: ChapterOpener, recto: boolean, first = false): string {
+  // Subtitle is passed as markup content (not a string) so `smartquote`
+  // converts its apostrophes/quotes properly.
+  const sub = o.subtitle ? `, subtitle: [${inlineText(o.subtitle)}]` : "";
+  return `#chapter(kind: "${o.kind}", number: ${o.number}, label: "${escapeTypstString(o.label)}"${sub}, recto: ${recto}, first: ${first})[${escapeTypst(o.title)}]\n\n`;
+}
+
+function normalizeLine(s: string): string {
+  return s.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// Choose the words set in small caps at a chapter opening — roughly the first
+// typographic line (3–5 words, max 34 chars).  Returns "" when small caps
+// don't apply (non-Latin scripts, quote-opened lines, very short paragraphs).
+function smallcapsLead(text: string): string {
+  if (!/^[\u0041-\u005A\u0061-\u007A\u00C0-\u024F"'\u201C\u2018(]/.test(text)) return "";
+  const words = text.split(/\s+/);
+  let lead = "";
+  for (const w of words) {
+    const cand = lead ? `${lead} ${w}` : w;
+    if (cand.length > 34 || (lead && lead.split(/\s+/).length >= 5)) break;
+    lead = cand;
+  }
+  // Smallcaps need at least one real letter, and must leave real text behind.
+  if (!/[A-Za-z]/.test(lead) || text.length - lead.length < 10) return "";
+  return lead;
+}
+
+// Which running-head formats the template understands.  Older JSON values
+// ("book-title|chapter-title") are mapped onto the closest real behaviour.
+function resolveRunningHeaderFormat(fmt: string | undefined): string {
+  switch ((fmt || "").toLowerCase()) {
+    case "none": return "none";
+    case "title_author":
+    case "author-name|chapter-title":
+    case "author-name|book-title": return "title_author";
+    case "chapter_only":
+    case "chapter-title": return "chapter_only";
+    default: return "title_chapter";
+  }
+}
+
+// One canonical brand domain — BRAND_DOMAIN env wins, racana.pro is the
+// default.  Used in the colophon, copyright line and preview watermark.
+function brandDomain(): string {
+  return (process.env.BRAND_DOMAIN || "racana.pro").trim() || "racana.pro";
+}
+
+const TRIM_HEIGHT_IN: Record<string, number> = {
+  "5x8": 8,
+  "5.5x8.5": 8.5,
+  "6x9": 9,
+  "8.5x11": 11,
+};
 
 export function generateTypstSource(options: RendererOptions): { source: string; images: EmbeddedImage[]; imageBlockCount: number } {
   const { structure, settings, templateName } = options;
   const tpl = (templateName || "classic").toLowerCase().replace(/[^a-z]/g, "") || "classic";
   const images: EmbeddedImage[] = [];
   const imageBlockCount = countImageBlocks(structure);
+  const chapterStyle = tpl === "modern" || tpl === "academic" ? "modern" : "classic";
+  const ctx: RenderCtx = {
+    images,
+    pageHeightIn: TRIM_HEIGHT_IN[settings.trimSize] || 9,
+  };
 
-  let source = `#import "/src/lib/renderer/typst/templates/${tpl}.typ": project\n\n`;
+  const title = (structure.title || "").trim() || "Untitled";
+  const author = (structure.author || "").trim();
+  const subtitle = (structure.subtitle || "").trim();
 
-  // Inject metadata and settings
-  source += `#show: project.with(\n`;
-  source += `  title: "${escapeTypstString(structure.title || "Untitled")}",\n`;
-  source += `  author: "${escapeTypstString(structure.author || "Unknown")}",\n`;
-  if (structure.subtitle) {
-    source += `  subtitle: "${escapeTypstString(structure.subtitle)}",\n`;
-  }
+  let source = `#import "/src/lib/renderer/typst/templates/${tpl}.typ": project, chapter, begin-body, begin-front-text, begin-display-page, book-toc, practice-box\n\n`;
+
   // Select fonts appropriate for the detected script.  The template's
   // default font may not support the manuscript's script (e.g. EB Garamond
   // can't render Malayalam glyphs).  We override with a script-appropriate
@@ -275,6 +416,16 @@ export function generateTypstSource(options: RendererOptions): { source: string;
   const bodyFontName = scriptFont?.body || settings.body.fontFamily || "EB Garamond";
   const headingFontName = scriptFont?.heading || settings.heading.fontFamily || "EB Garamond";
 
+  // The manuscript's own copyright page (if any) replaces the generated one.
+  const copyrightEntry = structure.frontMatter?.find((f) => f.type === "copyright");
+  const copyrightText = copyrightEntry
+    ? copyrightEntry.blocks.map((b) => (b.text || "").trim()).filter(Boolean).join("\n")
+    : "";
+
+  source += `#show: project.with(\n`;
+  source += `  title: "${escapeTypstString(title)}",\n`;
+  source += `  author: "${escapeTypstString(author)}",\n`;
+  if (subtitle) source += `  subtitle: "${escapeTypstString(subtitle)}",\n`;
   source += `  trimSize: "${settings.trimSize}",\n`;
   source += `  margins: (inside: ${settings.margins.insideMm}mm, outside: ${settings.margins.outsideMm}mm, top: ${settings.margins.topMm}mm, bottom: ${settings.margins.bottomMm}mm),\n`;
   source += `  bodyFont: ${typstFontList(bodyFontName)},\n`;
@@ -284,152 +435,215 @@ export function generateTypstSource(options: RendererOptions): { source: string;
   source += `  h1Size: ${settings.heading.h1SizePt}pt,\n`;
   source += `  h2Size: ${settings.heading.h2SizePt}pt,\n`;
   source += `  h3Size: ${settings.heading.h3SizePt}pt,\n`;
+  source += `  headingSpaceBeforeMm: ${settings.heading.spacingBeforeMm ?? 8},\n`;
+  source += `  headingSpaceAfterMm: ${settings.heading.spacingAfterMm ?? 3},\n`;
   source += `  chapterOpenRecto: ${settings.layout.chapterOpenRecto ? "true" : "false"},\n`;
   source += `  runningHeaders: ${settings.layout.runningHeaders ? "true" : "false"},\n`;
+  source += `  runningHeaderFormat: "${resolveRunningHeaderFormat(settings.layout.runningHeaderFormat)}",\n`;
   source += `  pageNumbers: "${escapeTypstString(settings.layout.pageNumbersPosition)}",\n`;
-  // Only emit non-default parameters — pass-through templates use `..args`
-  // which doesn't forward named args in Typst 0.11's `.with()` calls.
+  source += `  firstLineIndentMm: ${settings.body.firstLineIndentMm ?? 4.23},\n`;
+  source += `  paragraphSpacingMm: ${settings.body.paragraphSpacingMm ?? 0},\n`;
+  source += `  quoteIndentLeftMm: ${settings.quote.indentLeftMm ?? 12},\n`;
+  source += `  quoteIndentRightMm: ${settings.quote.indentRightMm ?? 12},\n`;
+  source += `  quoteFontSizeEm: ${settings.quote.fontSizeAdjustEm ?? 0.95},\n`;
+  source += `  quoteItalic: ${settings.quote.italic === false ? "false" : "true"},\n`;
+  source += `  chapterStyle: "${chapterStyle}",\n`;
   const bleedMm = settings.layout.bleedEnabled ? (settings.layout.bleedMm || 3.175) : 0;
-  if (bleedMm > 0) {
-    source += `  bleedMm: ${bleedMm},\n`;
+  if (bleedMm > 0) source += `  bleedMm: ${bleedMm},\n`;
+  // The author's own copyright text is passed as markup content (not a
+  // string) so `smartquote` converts its quotes/apostrophes properly.
+  if (copyrightText) {
+    const copyrightMarkup = copyrightText
+      .split("\n")
+      .map((l) => (l.trim() === "" ? "#v(0.55em) #linebreak()" : `${escapeTypst(l)} #linebreak()`))
+      .join("\n");
+    source += `  copyright: [${copyrightMarkup}],\n`;
   }
-  if (settings.body.firstLineIndentMm !== undefined && settings.body.firstLineIndentMm !== 4.23) {
-    source += `  firstLineIndentMm: ${settings.body.firstLineIndentMm},\n`;
-  }
-  if (settings.body.paragraphSpacingMm !== undefined && settings.body.paragraphSpacingMm !== 0) {
-    source += `  paragraphSpacingMm: ${settings.body.paragraphSpacingMm},\n`;
-  }
-  if (settings.layout.runningHeaderFormat && settings.layout.runningHeaderFormat !== "title_author") {
-    source += `  runningHeaderFormat: "${escapeTypstString(settings.layout.runningHeaderFormat)}",\n`;
-  }
-  if (settings.layout.orphanWidowTarget !== undefined && settings.layout.orphanWidowTarget !== 2) {
-    source += `  orphanWidowTarget: ${settings.layout.orphanWidowTarget},\n`;
-  }
+  source += `  year: "${new Date().getFullYear()}",\n`;
   // Map the detected manuscript script to a Typst language code for correct
-  // hyphenation and accessibility metadata.  Only emitted when non-default
-  // ("en") so pass-through templates that use ..args don't see an unexpected
-  // named parameter.
+  // hyphenation and accessibility metadata.
   const scriptToLang: Record<string, string> = {
-    devanagari: "hi",
-    tamil: "ta",
-    malayalam: "ml",
-    bengali: "bn",
-    gujarati: "gu",
-    kannada: "kn",
-    telugu: "te",
-    gurmukhi: "pa",
-    odia: "or",
+    devanagari: "hi", tamil: "ta", malayalam: "ml", bengali: "bn", gujarati: "gu",
+    kannada: "kn", telugu: "te", gurmukhi: "pa", odia: "or",
   };
   const textLang = scriptToLang[structure.detectedScript || ""] || "en";
-  if (textLang !== "en") {
-    source += `  textLang: "${textLang}",\n`;
-  }
-  source += `  showColophon: true,\n`;
+  if (textLang !== "en") source += `  textLang: "${textLang}",\n`;
+  source += `  showColophon: ${options.includeColophon === false ? "false" : "true"},\n`;
+  source += `  brandDomain: "${escapeTypstString(brandDomain())}",\n`;
+  source += `  previewWatermark: ${options.preview ? "true" : "false"},\n`;
   source += `)\n\n`;
 
-  // --- Front Matter (#2/#3/#7): discrete typed blocks ----------------------
-  // The template already renders the title page.  Here we emit the remaining
-  // front-matter entries (copyright, epigraphs, note, preface, ToC) as
-  // separate page sequences, each with its own heading style.
-  if (structure.frontMatter && structure.frontMatter.length > 0) {
-    for (const fm of structure.frontMatter) {
-      // Skip "front_matter" pseudo-entries that were just a dump of the
-      // title page — the template handles the title page itself.
-      if (fm.type === "title_page") continue;
+  // The first paragraph of a chapter: no first-line indent, and its opening
+  // words (~first line) are set in small caps — the classic book-opener cue.
+  const chapterFirstParagraph = (block: Block): string => {
+    const text = (block.text || "").trim();
+    const lead = smallcapsLead(text);
+    if (!lead) return `#par(first-line-indent: 0pt)[${inlineText(text)}]\n\n`;
+    const rest = text.slice(lead.length);
+    return `#par(first-line-indent: 0pt)[#smallcaps[${escapeTypst(lead)}]${inlineText(rest)}]\n\n`;
+  };
 
-      // ToC entries use the toc_entry block type, which renders as a
-      // dot-leader grid row — never as flowing justified prose.
-      if (fm.type === "toc") {
-        source += `#pagebreak(to: "odd", weak: true)\n`;
-        source += `#v(1in)\n`;
-        source += `#align(center)[#text(size: 20pt, weight: "bold")[Contents]]\n`;
-        source += `#v(0.5in)\n`;
-        for (const block of fm.blocks) {
-          source += convertBlock(block, images);
+  // Render a block list; paragraphs that follow a heading lose their
+  // first-line indent ("no indent after headings or breaks").
+  const renderBlocks = (blocks: Block[]) => {
+    let prevWasHeading = false;
+    return blocks
+      .map((b) => {
+        if (b.type === "paragraph" && prevWasHeading) {
+          prevWasHeading = false;
+          return convertBlock({ ...b, type: "noindent_paragraph" }, ctx);
         }
-        source += `#pagebreak(to: "odd", weak: true)\n\n`;
-        continue;
-      }
+        prevWasHeading = b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3";
+        return convertBlock(b, ctx);
+      })
+      .join("");
+  };
 
-      // Epigraphs: render on a fresh page but DON'T force recto.  Multiple
-      // epigraphs each get their own page (they're short), but without the
-      // `to: "odd"` constraint that would insert a blank even page between
-      // every pair of epigraphs.  Only major sections (copyright, ToC,
-      // preface, first chapter) need recto openings.
-      if (fm.type === "epigraph") {
-        source += `#pagebreak(weak: true)\n`;
-        for (const block of fm.blocks) {
-          source += convertBlock(block, images);
-        }
-        continue;
-      }
+  const sectionHeading = (text: string, size = 18) =>
+    chapterStyle === "modern"
+      ? `#text(size: ${size}pt, weight: "bold")[${escapeTypst(text)}]\n#v(0.4in)\n`
+      : `#align(center)[#text(size: ${size}pt)[${escapeTypst(text)}]]\n#v(0.4in)\n`;
 
-      // Other front-matter sections (note, preface, etc.) get a centered
-      // heading and start on a fresh recto page.
-      if (fm.title) {
-        source += `#pagebreak(to: "odd", weak: true)\n`;
-        source += `#v(1in)\n`;
-        source += `#align(center)[#text(size: 18pt, weight: "bold")[${escapeTypst(fm.title)}]]\n`;
-        source += `#v(0.5in)\n`;
+  // --- Front matter -------------------------------------------------------
+  // The template renders half-title, title and copyright pages itself.  Here
+  // we emit the manuscript's remaining front matter in conventional order:
+  // dedication / opening text and epigraphs (display pages, no folio), then
+  // the generated table of contents, then prose sections (preface, foreword,
+  // note) with roman folios.
+  const chapters = structure.chapters || [];
+  // A ToC is worthwhile when there's more than one structural entry —
+  // part rows render as group headings even when a book has no chapters.
+  const wantToc = chapters.length >= 2;
+  const metaLines = new Set([title, subtitle, author].filter(Boolean).map(normalizeLine));
+
+  const displayEntries: string[] = [];
+  const textEntries: string[] = [];
+  // The first numbered front-matter page gets folio "i" — roman folios start
+  // there, not at the half-title.  Display pages (epigraphs, dedication)
+  // carry no folio and don't consume it.
+  let romanStarted = false;
+  const frontTextBegin = () => {
+    const reset = !romanStarted;
+    romanStarted = true;
+    return `#begin-front-text(reset: ${reset})`;
+  };
+
+  // Epigraphs grouped on a single display page (the conventional treatment
+  // when there are a handful — e.g. this fixture's three opening quotes).
+  let pendingEpigraphs: Block[] = [];
+  const flushEpigraphs = () => {
+    if (pendingEpigraphs.length === 0) return;
+    const inner = pendingEpigraphs.map((b) => convertBlock(b, ctx)).join("#v(0.5in)\n");
+    displayEntries.push(`#begin-display-page()\n#v(1.6in)\n${inner}\n`);
+    pendingEpigraphs = [];
+  };
+
+  for (const fm of structure.frontMatter || []) {
+    if (fm.type === "copyright" || fm.type === "toc") continue; // handled by template / regenerated
+
+    if (fm.type === "title_page") {
+      flushEpigraphs();
+      // Everything on the author's title page that isn't the title, subtitle
+      // or byline is real text (a dedication, an invocation, an opening
+      // note) — keep it as a display page instead of dropping it.
+      const rest = fm.blocks.filter((b) => {
+        const t = normalizeLine(b.text || "");
+        if (!t) return b.type === "image";
+        if (metaLines.has(t)) return false;
+        if (/^(by|written by)\s+/i.test(t) && author && t.endsWith(normalizeLine(author))) return false;
+        return true;
+      });
+      if (rest.length === 0) continue;
+      const words = rest.reduce((n, b) => n + (b.text || "").split(/\s+/).filter(Boolean).length, 0);
+      if (words <= 120) {
+        displayEntries.push(
+          `#begin-display-page()\n#v(2.2in)\n#align(center)[#block(width: 80%)[#set par(justify: false, first-line-indent: 0pt)\n#set text(style: "italic")\n${rest.map((b) => convertBlock({ ...b, type: b.type === "paragraph" ? "paragraph" : b.type }, ctx)).join("")}]]\n\n`
+        );
+      } else {
+        textEntries.push(`${frontTextBegin()}\n#v(1in)\n${renderBlocks(rest)}\n`);
       }
-      for (const block of fm.blocks) {
-        source += convertBlock(block, images);
-      }
-      source += `#pagebreak(to: "odd", weak: true)\n\n`;
+      continue;
     }
+
+    if (fm.type === "epigraph") {
+      // Accumulate — a run of epigraphs shares one display page.
+      pendingEpigraphs.push(...fm.blocks);
+      continue;
+    }
+    if (fm.type === "dedication") {
+      flushEpigraphs();
+      displayEntries.push(`#begin-display-page()\n#v(2.2in)\n${renderBlocks(fm.blocks)}\n`);
+      continue;
+    }
+
+    flushEpigraphs();
+    let entry = `${frontTextBegin()}\n#v(1in)\n`;
+    if (fm.title) entry += sectionHeading(fm.title);
+    entry += renderBlocks(fm.blocks) + "\n";
+    textEntries.push(entry);
   }
+  flushEpigraphs();
+
+  source += displayEntries.join("");
+  if (wantToc) {
+    // The ToC is the first numbered front-matter page (roman i) — placed
+    // after the epigraph display pages and before the Note / Preface, and
+    // it opens on a recto.  "Practices" gets its own list under the chapters.
+    source += `#book-toc(reset: ${!romanStarted}, headingFont: ${typstFontList(headingFontName)}, bodyFont: ${typstFontList(bodyFontName)}, style: "${chapterStyle}", h1Size: ${settings.heading.h1SizePt}pt)\n\n`;
+    romanStarted = true;
+  }
+  source += textEntries.join("");
 
   // --- Chapters -----------------------------------------------------------
-  if (structure.chapters && structure.chapters.length > 0) {
-    for (const ch of structure.chapters) {
-      // Part dividers ("Part One — The Break") are headings; the template's
-      // heading show rule detects the "Part " prefix and suppresses the folio.
-      // Chapter titles get an ordinal eyebrow ("ONE") above the title for
-      // consistency with the ToC (#7).
-      const isPart = /^Part\s/.test(ch.title);
-      if (isPart) {
-        source += `= ${escapeTypst(ch.title)}\n\n`;
-      } else {
-        const eyebrow = chapterEyebrow(ch.title);
-        const cleanTitle = eyebrow ? stripOrdinal(ch.title) : ch.title;
-        if (eyebrow) {
-          // Emit the eyebrow as a small-caps line above the chapter heading.
-          // A paragraph (not heading) so it doesn't trigger the heading
-          // show rule's page break twice.
-          source += `#align(center)[#text(size: 10pt, weight: "regular", tracking: 0.15em)[#smallcaps[${escapeTypst(eyebrow)}]]]\n`;
-          source += `#v(0.3in)\n`;
-          source += `= ${escapeTypst(cleanTitle)}\n\n`;
-        } else {
-          source += `= ${escapeTypst(ch.title)}\n\n`;
+  if (chapters.length > 0) {
+    source += `#begin-body()\n\n`;
+    let sequence = 0;
+    chapters.forEach((ch, idx) => {
+      // Structured entries carry their own kind/label/subtitle; entries from
+      // older stored structures fall back to title sniffing.
+      const opener: ChapterOpener = ch.kind
+        ? {
+            kind: ch.kind === "matter" ? "matter" : ch.kind,
+            number: ch.number || 0,
+            label: ch.label || "",
+            title: ch.title || "",
+            subtitle: ch.subtitle,
+          }
+        : resolveChapterOpener(ch.title || "", sequence + 1);
+      if (opener.kind === "chapter" && opener.number > 0) sequence = Math.max(sequence + 1, opener.number);
+      source += openerCall(opener, settings.layout.chapterOpenRecto, idx === 0);
+      let firstParaPending = opener.kind === "chapter";
+      for (const sec of ch.sections || []) {
+        if (sec.title) {
+          const marks = "=".repeat(Math.max(2, Math.min(3, sec.level ?? 2)));
+          source += `${marks} ${escapeTypst(sec.title)}\n\n`;
+        }
+        let prevWasHeading = !!sec.title;
+        for (const b of sec.blocks || []) {
+          if (b.type === "paragraph" && firstParaPending) {
+            source += chapterFirstParagraph(b);
+            firstParaPending = false;
+            prevWasHeading = false;
+            continue;
+          }
+          if (b.type === "paragraph" && prevWasHeading) {
+            source += convertBlock({ ...b, type: "noindent_paragraph" }, ctx);
+            prevWasHeading = false;
+            continue;
+          }
+          prevWasHeading =
+            b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3";
+          source += convertBlock(b, ctx);
         }
       }
-
-      if (ch.sections) {
-        for (const sec of ch.sections) {
-          if (sec.title) {
-            source += `== ${escapeTypst(sec.title)}\n\n`;
-          }
-          for (const block of sec.blocks) {
-            source += convertBlock(block, images);
-          }
-        }
-      }
-    }
+    });
   }
 
-  // --- Back Matter --------------------------------------------------------
-  if (structure.backMatter && structure.backMatter.length > 0) {
-    for (const bm of structure.backMatter) {
-      if (bm.title) {
-        source += `= ${escapeTypst(bm.title)}\n\n`;
-      }
-      for (const block of bm.blocks) {
-        source += convertBlock(block, images);
-      }
-    }
+  // --- Back matter --------------------------------------------------------
+  for (const bm of structure.backMatter || []) {
+    source += openerCall({ kind: "matter", number: 0, label: "", title: bm.title || "" }, settings.layout.chapterOpenRecto);
+    source += renderBlocks(bm.blocks);
   }
-
-  // The colophon is now rendered by the template itself (showColophon param).
 
   return { source, images, imageBlockCount };
 }

@@ -13,16 +13,16 @@
     "fontFamily": "Source Serif 4",
     "fontSizePt": 11,
     "leadingEm": 1.4,
-    "firstLineIndentMm": 4,
-    "paragraphSpacingMm": 3
+    "firstLineIndentMm": 0,
+    "paragraphSpacingMm": 2.5
   },
   "heading": {
     "fontFamily": "Source Sans 3",
     "h1SizePt": 22,
-    "h2SizePt": 16,
-    "h3SizePt": 13,
-    "spacingBeforeMm": 14,
-    "spacingAfterMm": 7
+    "h2SizePt": 15,
+    "h3SizePt": 12.5,
+    "spacingBeforeMm": 9,
+    "spacingAfterMm": 3
   },
   "margins": {
     "insideMm": 19,
@@ -33,15 +33,15 @@
   "layout": {
     "chapterOpenRecto": false,
     "runningHeaders": true,
-    "runningHeaderFormat": "chapter-title",
+    "runningHeaderFormat": "title_chapter",
     "pageNumbersPosition": "outer_header",
     "orphanWidowTarget": 2,
     "bleedMm": 3.175,
     "bleedEnabled": false
   },
   "quote": {
-    "indentLeftMm": 12,
-    "indentRightMm": 12,
+    "indentLeftMm": 10,
+    "indentRightMm": 10,
     "fontSizeAdjustEm": 0.92,
     "italic": false
   },
@@ -49,12 +49,18 @@
     {
       "family": "Source Serif 4",
       "file": "SourceSerif4-Regular.ttf",
-      "weights": [400, 700]
+      "weights": [
+        400,
+        700
+      ]
     },
     {
       "family": "Source Sans 3",
       "file": "SourceSans3-Regular.ttf",
-      "weights": [400, 700]
+      "weights": [
+        400,
+        700
+      ]
     }
   ]
 }

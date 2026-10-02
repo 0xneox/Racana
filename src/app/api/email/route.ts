@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
         <p>Hello,</p>
         <p>Your manuscript <strong>${safeTitle}</strong> has been successfully rendered into a print-ready PDF.</p>
         <p><a href="${downloadLink}" style="color:#A34825;">Download your finished book</a></p>
-        <p style="margin-top: 32px; color: #888; font-size: 12px;">Racana &middot; racana.studio &middot; Your manuscript in. Your finished book out.</p>
+        <p style="margin-top: 32px; color: #888; font-size: 12px;">Racana &middot; racana.pro &middot; Your manuscript in. Your finished book out.</p>
       </div>
     `;
 

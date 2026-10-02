@@ -5,7 +5,7 @@ export const alt = "Racana — Your manuscript in. Your finished book out.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-// Site-wide OG card — renders when racana.studio links are posted on X.
+// Site-wide OG card — renders when racana.pro links are posted on X.
 export default function OgImage() {
   return new ImageResponse(
     (
@@ -29,7 +29,7 @@ export default function OgImage() {
             textTransform: "uppercase",
           }}
         >
-          The 2-minute book interior publisher
+          Book interior publisher for Indian authors
         </div>
         <div
           style={{
@@ -61,7 +61,7 @@ export default function OgImage() {
           }}
         >
           <span>Free preview · No subscription</span>
-          <span>racana.studio</span>
+          <span>racana.pro</span>
         </div>
       </div>
     ),

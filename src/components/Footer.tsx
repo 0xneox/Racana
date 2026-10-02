@@ -17,7 +17,7 @@ export function Footer() {
     [
       t("company"),
       [
-        [t("contact"), "mailto:books@racana.studio"],
+        [t("contact"), "mailto:books@racana.pro"],
       ],
     ],
     [
@@ -35,7 +35,10 @@ export function Footer() {
       <div className="mx-auto max-w-[1312px]">
         <div className="grid gap-12 border-b border-background/20 pb-14 md:grid-cols-[2fr_1fr_1fr_1fr]">
           <div>
-            <p className="font-serif text-3xl tracking-[0.14em]">RACANA</p>
+            <div className="flex items-center gap-3">
+              <img src="/logo-mark.png" alt="" className="h-10 w-auto" />
+              <p className="font-serif text-3xl tracking-[0.14em]">RACANA</p>
+            </div>
             <p className="mt-4 text-sm text-background/60">
               {t("tagline")}
             </p>

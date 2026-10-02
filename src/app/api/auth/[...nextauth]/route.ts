@@ -75,7 +75,7 @@ function magicLinkEmail(to: string, url: string) {
       <p>Click the button below to sign in. This link is valid for 15 minutes and can only be used once.</p>
       <p><a href="${url}" style="display:inline-block;background:#1C1917;color:#F8F5EE;padding:12px 24px;border-radius:8px;text-decoration:none;">Sign In</a></p>
       <p style="margin-top:24px;color:#888;font-size:12px;">Or paste this link into your browser:<br/>${url}</p>
-      <p style="margin-top:32px;color:#888;font-size:12px;">If you didn't request this link, you can safely ignore this email.<br/>Racana &middot; racana.studio</p>
+      <p style="margin-top:32px;color:#888;font-size:12px;">If you didn't request this link, you can safely ignore this email.<br/>Racana &middot; racana.pro</p>
     </div>`;
   return { subject, text, html };
 }

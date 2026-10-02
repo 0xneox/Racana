@@ -43,7 +43,7 @@ function decodeXmlEntities(s: string): string {
 // Lenient fallback when mammoth's strict XML parser rejects a file (e.g. malformed
 // attributes from non-Word generators). Reads word/document.xml directly and
 // walks paragraphs + heading styles by regex — no full XML parse required.
-async function parseDocxFallback(buffer: Buffer): Promise<DocxParseResult> {
+async function parseDocxFallback(buffer: Buffer, fixes?: string[]): Promise<DocxParseResult> {
   const zip = await JSZip.loadAsync(buffer);
   const docFile = zip.file("word/document.xml");
   if (!docFile) throw new Error("word/document.xml not found in DOCX package");
@@ -89,7 +89,11 @@ async function parseDocxFallback(buffer: Buffer): Promise<DocxParseResult> {
     throw new Error("DOCX fallback extraction produced no readable text");
   }
 
-  return { blocks: repairLineBreakSplits(blocks), rawText: rawParts.join("\n\n") };
+  return {
+    blocks: normalizeParsedBlocks(repairLineBreakSplits(blocks), fixes),
+    rawText: rawParts.join("\n\n"),
+    fixes,
+  };
 }
 
 // De-hyphenate within a single block's text.  DOCX line breaks inside a
@@ -171,19 +175,139 @@ function repairLineBreakSplits(blocks: Block[]): Block[] {
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Mechanical text repairs (applied to plain-text nodes only — paragraphs and
+// list items).  Every change is logged so the author can audit the diff.
+// ---------------------------------------------------------------------------
+
+function logFix(fixes: string[] | undefined, msg: string) {
+  fixes?.push(msg);
+}
+
+// Does a fragment look like a capitalised heading candidate rather than the
+// continuation of a sentence?  Used when a heading was glued to the previous
+// paragraph mid-text (".The Taoist View" at the end of a block).
+function looksLikeHeadingTail(s: string): boolean {
+  const t = s.trim();
+  if (!t || t.length > 80 || t.length < 4) return false;
+  if (/[.!?…]$/.test(t)) return false; // headings don't end in terminal periods
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length > 10) return false;
+  // Title-case or ALL-CAPS fragments only — ".The gap is not…" continues.
+  const capWords = words.filter((w) => /^[A-Z\u0900-\u097F"'\u201C\u2018(]/.test(w));
+  if (capWords.length / words.length < 0.6) return false;
+  return true;
+}
+
+// Split a paragraph whose tail is a glued heading (".The Next Thing") into
+// paragraph + h3.  Returns null when no split applies.
+function splitGluedHeadingTail(
+  text: string,
+  fixes?: string[]
+): { head: string; title: string } | null {
+  // Find a sentence-ending boundary without a following space where the
+  // remainder of the block is a plausible heading.
+  const re = /([.!?])([A-Z\u0900-\u097F][^.!?]*?)$/g;
+  let m: RegExpExecArray | null;
+  let found: { head: string; title: string } | null = null;
+  while ((m = re.exec(text)) !== null) {
+    const tail = m[2];
+    const head = text.slice(0, m.index + 1);
+    // Only consider the LAST boundary — earlier ones may be legit.
+    if (m.index + 1 + tail.length !== text.length) continue;
+    if (looksLikeHeadingTail(tail)) {
+      found = { head, title: tail.trim() };
+    }
+  }
+  if (found) {
+    logFix(
+      fixes,
+      `split_glued_heading: "${found.head.slice(-40)}" | "${found.title}"`
+    );
+  }
+  return found;
+}
+
+// Fix "missing space after period" (".The") and "space before punctuation"
+// ("word ,").  Runs on a single text node; returns the repaired string.
+function repairTextNode(text: string, fixes?: string[]): string {
+  let out = text;
+
+  // Missing space after a sentence-ending period when followed by a
+  // capitalised word.  Guards: needs a lowercase char (or closing quote /
+  // bracket) before the dot so initials like "W. L." are skipped, and the
+  // capital must be followed by a lowercase letter so acronyms survive.
+  out = out.replace(
+    /([a-z,;:!?)”’"\]])([.!?])([A-Z\u0900-\u097F][a-z\u0900-\u097F])/g,
+    (_whole, before: string, punct: string, after: string) => {
+      logFix(fixes, `missing_space_after_period: "...${before}${punct}${after}..."`);
+      return `${before}${punct} ${after}`;
+    }
+  );
+
+  // Space before punctuation: "word ," / "word ;" etc.  Dots are skipped so
+  // spaced ellipses ("word . . .") are never mangled.
+  out = out.replace(/(\S) +([,;:!?])/g, (_w, ch: string, punct: string) => {
+    logFix(fixes, `space_before_punct: "${ch} ${punct}"`);
+    return `${ch}${punct}`;
+  });
+
+  return out;
+}
+
+// A paragraph that is a spaced-letter "P R A C T I C E" marker normalises to
+// the canonical "PRACTICE" token the practice-box converter looks for.
+const SPACED_PRACTICE = /^\s*P\s*R\s*A\s*C\s*T\s*I\s*C\s*E\s*:?\.?\s*$/i;
+
+function normalizePracticeMarker(blocks: Block[]): Block[] {
+  for (const b of blocks) {
+    if (b.type === "paragraph" && SPACED_PRACTICE.test((b.text || "").trim())) {
+      b.text = "PRACTICE";
+    }
+  }
+  return blocks;
+}
+
+// Post-parse normalisation shared by the mammoth path and the OOXML fallback.
+// Order matters: repair text first, then split glued headings (a repaired
+// boundary is a valid split point), then normalise practice markers.
+export function normalizeParsedBlocks(blocks: Block[], fixes?: string[]): Block[] {
+  const out: Block[] = [];
+  for (const b of blocks) {
+    if (b.type === "paragraph" && b.text) {
+      // Glued-heading detection runs on the RAW text — the missing-space
+      // repair below would otherwise insert a space at the boundary and hide
+      // the split point.
+      const glued = splitGluedHeadingTail(b.text, fixes);
+      if (glued) {
+        out.push({ ...b, text: repairTextNode(glued.head, fixes) });
+        out.push({ type: "heading_h3", text: glued.title, level: 3, confidence: 0.7 });
+        continue;
+      }
+      b.text = repairTextNode(b.text, fixes);
+    }
+    if (b.type === "list_ordered" || b.type === "list_unordered") {
+      b.items = (b.items || []).map((it) => repairTextNode(it, fixes));
+    }
+    out.push(b);
+  }
+  return normalizePracticeMarker(out);
+}
+
 export async function parseDocx(buffer: Buffer): Promise<DocxParseResult> {
+  const fixes: string[] = [];
   try {
-    return await parseDocxWithMammoth(buffer);
+    return await parseDocxWithMammoth(buffer, fixes);
   } catch (err) {
     console.warn(
       "[DocxParser] mammoth parse failed, trying lenient OOXML fallback:",
       (err as Error)?.message
     );
-    return parseDocxFallback(buffer);
+    return parseDocxFallback(buffer, fixes);
   }
 }
 
-async function parseDocxWithMammoth(buffer: Buffer): Promise<DocxParseResult> {
+async function parseDocxWithMammoth(buffer: Buffer, fixes?: string[]): Promise<DocxParseResult> {
   const rawResult = await mammoth.extractRawText({ buffer });
   const htmlResult = await mammoth.convertToHtml(
     { buffer },
@@ -513,5 +637,5 @@ async function parseDocxWithMammoth(buffer: Buffer): Promise<DocxParseResult> {
     }
   }
 
-  return { blocks: repairLineBreakSplits(blocks), rawText };
+  return { blocks: normalizeParsedBlocks(repairLineBreakSplits(blocks), fixes), rawText, fixes };
 }

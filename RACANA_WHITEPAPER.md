@@ -20,10 +20,11 @@ It is not a word processor, not a cover designer, not a marketplace, and not an 
 Authors who finish a manuscript hit a wall before printing: the interior must conform to exact trim dimensions, gutter compensation, spine margins, running headers, recto chapter openings, folio placement, and font embedding. The tools that do this today are:
 
 - **Adobe InDesign** — $599/year, 20+ hours of learning, overkill for a single book.
-- **Reedsy Book Editor** — free but buggy typography, only 3 trim sizes.
+- **Reedsy Book Editor** — free but buggy typography, only 3 trim sizes, no Indian script typesetting.
 - **Canva** — drag-and-drop text boxes, not real typesetting, no chapter detection.
+- **Freelance Designers & Formatters** — $100–$500 per title and weeks of turnaround for covers and Kindle conversions.
 
-Racana replaces that workflow with: upload → choose a style → download. Zero technical questions asked.
+Racana replaces that workflow with: **upload → choose a style → design cover in studio (optional) → download print-ready PDF + Kindle-ready EPUB**. Zero technical questions asked.
 
 ---
 
@@ -109,9 +110,9 @@ The watermark is a genuine overlay, not a text tag — verified by `watermark.te
 
 ### 3.7 Payment
 
-- **Stripe Checkout** (one-time $29 payment per interior, no subscription).
-- `POST /api/checkout` creates a Checkout Session scoped to the job owner (signed-in user or guest cookie). It refuses checkout if the job isn't `ready` or is already paid.
-- `POST /api/webhooks/stripe` verifies the Stripe signature and flips the `Payment` row to `paid`, unlocking the clean download.
+- **Razorpay Checkout** (one-time ₹2,450 payment per interior, no subscription).
+- `POST /api/checkout/razorpay` creates a Razorpay order scoped to the job owner (signed-in user or guest cookie). It refuses checkout if the job isn't `ready` or is already paid.
+- `POST /api/checkout/razorpay/verify` verifies the checkout signature client→server and flips the `Payment` row to `paid`; `POST /api/webhooks/razorpay` does the same from Razorpay's `payment.captured` event.
 - After payment, the user is redirected to `/ready?jobId=…&paid=1`, which polls the job every 3 seconds for up to 30 seconds to absorb the webhook race condition before showing "Payment confirmed."
 - Rate limited: 20 checkout attempts per hour per IP.
 
@@ -155,6 +156,23 @@ A dashboard listing every job owned by the current user (or guest). Each row sho
 
 A single-page landing with: hero ("Your manuscript in. Your finished book out."), a before/after manuscript comparison, the six styles grid, the authorship promise ("Your words stay yours"), the craft/trim-size section, a $29 pricing block, a six-question FAQ, and JSON-LD `SoftwareApplication` structured data. Branded 404 and 500 pages, plus `/privacy` and `/terms`, are live.
 
+### 3.14 Cover Page Studio (`/cover`)
+
+An interactive, browser-based studio that allows authors to design print-ready paperback covers (back, spine, front) and 1:1.6 digital eBook covers without hiring an external designer:
+- **Curated cultural presets:** Royal Saffron & Temple Gold, Peacock Indigo & Teal, Classic Obsidian, Sunset Terracotta, Minimalist Ivory, and Midnight Philosophy.
+- **Cultural ornaments:** Vector-rendered sacred Mandalas, Indian Lotuses, traditional Jharokha Arches, and classical typography flourishes.
+- **Real-time live SVG rendering:** 60fps instant visual feedback as the author fine-tunes typography, palettes, spine text, and back-cover blurbs.
+- **Automated spine calculation:** Spine width is dynamically computed based on the book's verified page count and standard paper bulk.
+- **Print & digital export:** Exports 300 DPI vector PDFs via `pdf-lib` and scalable SVGs, automatically saving artifacts to the job.
+
+### 3.15 One-Click eBook & EPUB 3.0 Export
+
+Instant generation of validated, reflowable digital book packages ready for immediate distribution:
+- **Standard compliance:** Valid EPUB 3.0 package (`OEBPS/content.opf`, `OEBPS/nav.xhtml`) with EPUB 2 NCX (`OEBPS/toc.ncx`) for legacy Kindle compatibility.
+- **Reflowable typography:** Embedded CSS tuned for Kindle Paperwhite, Kobo, Apple Books, and Google Play Books, with native font fallbacks for Devanagari, Bengali, Tamil, and Latin scripts.
+- **Cover integration:** Automatically packages the designed cover artwork as the primary e-reader cover page.
+- **Zero friction:** Available directly on `/ready` and `/books` with single-click download.
+
 ---
 
 ## 4. How It Works — End to End
@@ -185,8 +203,8 @@ Author uploads .docx/.pdf
         │           8. status = ready
         ▼
    /ready  ──►  download free preview (watermarked)
-            ──►  or pay $29 via Stripe Checkout
-                    ──►  webhook flips Payment to "paid"
+            ──►  or pay ₹2,450 via Razorpay (UPI/cards/netbanking)
+                    ──►  signature verify/webhook flips Payment to "paid"
             ──►  download clean print-ready PDF
             ──►  optional: email myself the book
             ──►  optional: mint a public share link
@@ -208,7 +226,7 @@ The whole flow from upload to a downloadable preview typically completes in unde
 | PDF manipulation | `pdf-lib` (watermark, QA), `pdf-parse` (text extraction) |
 | DOCX parsing | `mammoth` + lenient OOXML fallback |
 | Auth | Magic links (Resend) + Google OAuth, HMAC-signed sessions |
-| Payments | Stripe Checkout + webhook |
+| Payments | Razorpay orders + signature verify + webhook |
 | Email | Resend |
 | Containerization | Multi-container Docker Compose (postgres, redis, minio, app) |
 

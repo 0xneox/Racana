@@ -24,7 +24,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   const from =
     process.env.EMAIL_FROM ||
     process.env.RESEND_FROM_EMAIL ||
-    "Racana <books@racana.studio>";
+    "Racana <books@racana.pro>";
 
   if (!isEmailConfigured()) {
     console.warn(

@@ -48,6 +48,63 @@ interface ChapterHeadingMatch {
   rawTitle: string;
   headingType: "heading_h1" | "heading_h2" | "heading_h3" | "paragraph";
   isBookLevel?: boolean;
+  /** "chapter" | "part" | "backmatter" — drives segmentation and openers. */
+  kind?: "chapter" | "part" | "backmatter";
+  /** The marker line itself ("CHAPTER SEVEN", "PART ONE") when separate. */
+  marker?: string;
+  /** True when the marker carries no title and the next block supplies it. */
+  takeTitleFromNext?: boolean;
+}
+
+// Ordinal words up to forty — DOCX chapter markers routinely spell the number
+// out ("CHAPTER TWELVE"), which the old roman/arabic regex could not see.
+const ORDINAL_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
+  fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+  twenty: 20, "twenty-one": 21, "twenty-two": 22, "twenty-three": 23,
+  "twenty-four": 24, "twenty-five": 25, "twenty-six": 26, "twenty-seven": 27,
+  "twenty-eight": 28, "twenty-nine": 29, thirty: 30, "thirty-one": 31,
+  "thirty-two": 32, "thirty-three": 33, "thirty-four": 34, "thirty-five": 35,
+  "thirty-six": 36, "thirty-seven": 37, "thirty-eight": 38, "thirty-nine": 39,
+  forty: 40,
+};
+
+function parseOrdinal(s: string): number {
+  const t = s.trim().toLowerCase();
+  if (/^\d+$/.test(t)) return parseInt(t, 10);
+  if (/^[ivxlcdm]+$/.test(t)) return fromRoman(t.toUpperCase());
+  return ORDINAL_WORDS[t] || 0;
+}
+
+// Back-matter section names — each becomes its own BackMatterEntry with its
+// own verbatim title (never another section's label).
+const BACK_MATTER_TITLE =
+  /^(endnotes?|notes on .+|notes|about the author|about this book|about the book|acknowledge?ments?|glossary|bibliography|selected bibliography|references|works cited|further reading|appendix\b.*|afterword|epilogue|index|also by .*)$/i;
+
+// "PART ONE — The Break" / bare "PART ONE" / "Part 3".  For plain paragraphs
+// (unstyled markers), a following title is only trusted when a real separator
+// is present, so prose like "Part one of this book describes…" stays body text.
+function matchPartHeading(block: Block, t: string): ChapterHeadingMatch | null {
+  const isHeading = block.type.startsWith("heading");
+  const m = t.match(/^part\s+([a-z0-9]+)(?![a-zA-Z])([\s]*[:.\-—–·][\s]*|[\s]+)?([^\n]*)$/i);
+  if (!m) return null;
+  const rest = (m[3] || "").trim();
+  const sep = (m[2] || "").trim();
+  if (!isHeading) {
+    if (t.length > 90) return null;
+    if (rest && !sep) return null;
+  }
+  if (rest && /^[a-z]/.test(rest) && !sep) return null;
+  return {
+    blockIndex: -1,
+    chapterNumber: 0,
+    rawTitle: rest,
+    marker: `PART ${m[1].toUpperCase()}`,
+    headingType: block.type as ChapterHeadingMatch["headingType"],
+    kind: "part",
+    takeTitleFromNext: !rest,
+  };
 }
 
 function matchChapterHeading(block: Block): ChapterHeadingMatch | null {
@@ -63,19 +120,61 @@ function matchChapterHeading(block: Block): ChapterHeadingMatch | null {
     return null;
   }
 
-  // (?![a-zA-Z]) prevents "chapter is…"/"book in…" — 'i' is a roman numeral
-  // letter and would otherwise match ordinary prose as a chapter boundary.
-  const chapterRegex = /^chapter\s+([ivxlcdm0-9]+)(?![a-zA-Z])[\s:.\-—–]*([^\n]*)$/i;
+  // Level-0 part dividers must be checked before chapters: a "PART" heading
+  // is never a chapter boundary even though some matchers below could claim it.
+  const part = matchPartHeading(block, t);
+  if (part) return part;
+
+  // Back-matter heads (Endnotes, About the Author, …) become boundaries only
+  // when they are real headings or standalone short title lines — a sentence
+  // mentioning "the endnotes" inside body text must never split a chapter.
+  if (
+    BACK_MATTER_TITLE.test(t) &&
+    (block.type.startsWith("heading") || (block.type === "paragraph" && t.length < 70 && !/[.!?…]["'’”)]?$/.test(t)))
+  ) {
+    return {
+      blockIndex: -1,
+      chapterNumber: 0,
+      rawTitle: t,
+      headingType: block.type as ChapterHeadingMatch["headingType"],
+      kind: "backmatter",
+    };
+  }
+
+  // (?![a-zA-Z]) prevents "chapter is…"/"book in…" — and word ordinals are
+  // accepted ("CHAPTER TWELVE") since the class below allows any letter.
+  const chapterRegex = /^chapter\s+([a-z0-9]+)(?![a-zA-Z])[\s]*([:.\-—–·]*[\s]*)([^\n]*)$/i;
   const chapterMatch = t.match(chapterRegex);
   if (chapterMatch) {
-    const num = parseRomanOrArabic(chapterMatch[1]);
-    const rest = (chapterMatch[2] || "").trim();
-    const title = rest || `Chapter ${chapterMatch[1].toUpperCase()}`;
+    const num = parseOrdinal(chapterMatch[1]) || parseRomanOrArabic(chapterMatch[1]);
+    const rest = (chapterMatch[3] || "").trim();
+    const sep = (chapterMatch[2] || "").trim();
+    const isHeading = block.type.startsWith("heading");
+    // Bare marker lines ("CHAPTER TEN") take their title from the next block.
+    if (!rest) {
+      // For paragraphs, a bare marker is only a boundary when it truly stands
+      // alone — "Chapter one I remember" style prose stays body text.
+      if (!isHeading && !/^\s*chapter\s+[a-z0-9]+\s*$/i.test(t)) return null;
+      return {
+        blockIndex: -1,
+        chapterNumber: num,
+        rawTitle: "",
+        marker: `CHAPTER ${chapterMatch[1].toUpperCase()}`,
+        headingType: block.type as ChapterHeadingMatch["headingType"],
+        kind: "chapter",
+        takeTitleFromNext: true,
+      };
+    }
+    // "Chapter 3 The Night" without a separator is accepted on headings but
+    // treated as prose on paragraphs (guards "Chapter 3 of the report…").
+    if (!isHeading && !sep) return null;
     return {
       blockIndex: -1,
       chapterNumber: num,
-      rawTitle: title,
+      rawTitle: rest || `Chapter ${chapterMatch[1].toUpperCase()}`,
+      marker: `CHAPTER ${chapterMatch[1].toUpperCase()}`,
       headingType: block.type as ChapterHeadingMatch["headingType"],
+      kind: "chapter",
     };
   }
 
@@ -91,6 +190,8 @@ function matchChapterHeading(block: Block): ChapterHeadingMatch | null {
       rawTitle: title,
       headingType: block.type as ChapterHeadingMatch["headingType"],
       isBookLevel: true,
+      kind: "part",
+      takeTitleFromNext: !rest,
     };
   }
 
@@ -148,30 +249,58 @@ function fromRoman(s: string): number {
 
 function findChapterBoundaries(blocks: Block[]): ChapterHeadingMatch[] {
   const matches: ChapterHeadingMatch[] = [];
+  let inToc = false;
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
+    const t = (b.text || "").trim();
+    // Track the manuscript's own Contents region — its entry lines
+    // ("PART ONE · THE BREAK  12") must never become structural boundaries.
+    if (/^(table of contents|contents)$/i.test(t)) {
+      inToc = true;
+    } else if (b.type.startsWith("heading")) {
+      inToc = false;
+    }
+    if (inToc && !b.type.startsWith("heading") && /(\d\s*$|·|\.{3,}|…)/.test(t)) continue;
     const m = matchChapterHeading(b);
     if (m) {
+      // A plain-paragraph marker that ends in a bare number is almost always
+      // a ToC row with a page number ("CHAPTER TWO · Title  34"), not a
+      // boundary.  Real markers on real headings keep the rule lenient.
+      if (!b.type.startsWith("heading") && /\d\s*$/.test(t) && /[A-Za-z\u0900-\u097F]\d+$/.test(t.replace(/\s+/g, " "))) {
+        continue;
+      }
       m.blockIndex = i;
       matches.push(m);
     }
   }
+
+  // Back-matter boundaries only apply once the body has started — an
+  // "Acknowledgements" in the front matter is a front-matter section, not
+  // the end of the book.
+  const firstBodyIdx = matches.findIndex((m) => m.kind !== "backmatter");
+  const filtered = matches.filter(
+    (m, idx) => m.kind !== "backmatter" || (firstBodyIdx >= 0 && idx > firstBodyIdx)
+  );
+
   let numCounter = 0;
   let bookCounter = 0;
-  for (const m of matches) {
-    if (m.isBookLevel) {
-      bookCounter++;
-      m.chapterNumber = m.chapterNumber || bookCounter;
-    } else {
-      if (!m.chapterNumber || m.chapterNumber <= 0 || m.chapterNumber > matches.length + 50) {
-        numCounter++;
-        m.chapterNumber = numCounter;
-      } else if (m.chapterNumber > 0) {
-        numCounter = Math.max(numCounter, m.chapterNumber);
+  for (const m of filtered) {
+    if (m.kind === "backmatter" || m.kind === "part") {
+      // Part/back-matter markers don't consume chapter numbers.
+      if (m.isBookLevel) {
+        bookCounter++;
+        m.chapterNumber = m.chapterNumber || bookCounter;
       }
+      continue;
+    }
+    if (!m.chapterNumber || m.chapterNumber <= 0 || m.chapterNumber > filtered.length + 50) {
+      numCounter++;
+      m.chapterNumber = numCounter;
+    } else if (m.chapterNumber > 0) {
+      numCounter = Math.max(numCounter, m.chapterNumber);
     }
   }
-  return matches;
+  return filtered;
 }
 
 function detectSectionHeading(block: Block): { title: string; level: number } | null {
@@ -191,6 +320,7 @@ function detectSectionHeading(block: Block): { title: string; level: number } | 
 
 interface SectionAccumulator {
   title: string;
+  level?: number;
   blocks: Block[];
 }
 
@@ -209,11 +339,11 @@ function splitIntoSections(blocks: Block[]): ChapterSection[] {
     const sectionInfo = detectSectionHeading(b);
     if (sectionInfo && sectionInfo.level >= 2) {
       flushCurrent();
-      current = { title: sectionInfo.title, blocks: [] };
+      current = { title: sectionInfo.title, level: sectionInfo.level, blocks: [] };
       continue;
     }
     if (!current) {
-      current = { title: "", blocks: [] };
+      current = { title: "", level: 2, blocks: [] };
     }
     current.blocks.push(b);
   }
@@ -221,6 +351,7 @@ function splitIntoSections(blocks: Block[]): ChapterSection[] {
 
   return sections.map((s) => ({
     title: s.title,
+    level: s.level ?? 2,
     blocks: s.blocks,
   }));
 }
@@ -244,66 +375,181 @@ function detectBackMatterType(blocks: Block[]): string {
     .map((b) => b.text || "")
     .join("\n")
     .toLowerCase();
-  if (text.includes("bibliography") || text.includes("references")) return "bibliography";
+  // Order matters: "About the Author" contains none of these words but must
+  // never be labelled "endnotes", and "Notes on Sources" is its own section.
+  if (text.includes("about the author")) return "about_author";
+  if (text.includes("acknowledg")) return "acknowledgments";
+  if (text.includes("bibliography") || text.includes("references") || text.includes("works cited")) return "bibliography";
+  if (text.includes("notes on") || text.includes("sources") || text.includes("further reading")) return "sources";
   if (text.includes("appendix")) return "appendix";
   if (text.includes("glossary")) return "glossary";
   if (text.includes("index")) return "index";
   if (text.includes("afterword") || text.includes("epilogue")) return "afterword";
-  if (text.includes("notes")) return "endnotes";
+  if (text.includes("endnotes") || text.includes("notes")) return "endnotes";
   return "back_matter";
 }
 
-// Convert "Practice — Title" headings and their following content (list items,
-// paragraphs) into a single practice_box block (#4).  The heading is consumed
-// and replaced by a practice_box block whose label is the title text after
-// "Practice — ".  Content is collected until the next heading or end of blocks.
+// ---------------------------------------------------------------------------
+// Body-level detections, applied per chapter segment.
+// ---------------------------------------------------------------------------
+
+// Pull-quotes / epigraphs / verse inside the body: a paragraph that starts
+// with a quotation mark (or is a quote block) followed by a short attribution
+// line ("— Source") becomes an `epigraph` node with a separate attribution;
+// a lone quote without attribution stays a styled `quote` block.
+function detectBodyQuotes(blocks: Block[]): Block[] {
+  const out: Block[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const t = (b.text || "").trim();
+
+    const isQuoteLike =
+      b.type === "quote" ||
+      (b.type === "paragraph" && /^[\u201C\u201D“”"'\u2018\u2019]/.test(t) && t.length < 400);
+    if (!isQuoteLike) {
+      out.push(b);
+      continue;
+    }
+
+    const next = blocks[i + 1];
+    const nt = (next?.text || "").trim();
+    const isAttribution =
+      next?.type === "paragraph" && /^[\u2014\u2013\-–—]/.test(nt) && nt.length < 90;
+
+    if (isAttribution) {
+      out.push({
+        type: "epigraph",
+        text: t,
+        attribution: nt.replace(/^[\u2014\u2013\-–—\s]+/, ""),
+      });
+      i++;
+      continue;
+    }
+    // No attribution — keep quote blocks as blockquotes; paragraphs stay
+    // paragraphs (a stray quotation in prose is not an epigraph).
+    if (b.type === "quote") out.push(b);
+    else out.push(b);
+  }
+  return out;
+}
+
+// Run-in subheads (A.3): a short line (< 80 chars) that ends with a colon,
+// or carries no terminal sentence punctuation, and is followed by a real
+// paragraph becomes a level-3 heading instead of body text.  Heuristic
+// detections carry `confidence` so the preflight report can flag them.
+function detectRunInHeads(blocks: Block[]): Block[] {
+  const out: Block[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const next = blocks[i + 1];
+    if (b.type !== "paragraph") {
+      out.push(b);
+      continue;
+    }
+    const t = (b.text || "").trim();
+    const nextText = (next?.text || "").trim();
+    const nextIsBody =
+      (next?.type === "paragraph" && nextText.length > 80) ||
+      next?.type === "list_ordered" ||
+      next?.type === "list_unordered";
+    if (!nextIsBody || !t || t.length >= 80) {
+      out.push(b);
+      continue;
+    }
+    // Never promote structural markers or front-matter-looking lines.
+    if (/^(chapter|part|book|practice)\b/i.test(t) || SPACED_PRACTICE_RE.test(t)) {
+      out.push(b);
+      continue;
+    }
+    if (/^[\u201C\u201D“”"'\u2018\u2019\-–—•*]/.test(t)) {
+      out.push(b); // quotations, attributions, list bullets
+      continue;
+    }
+    const words = t.split(/\s+/).filter(Boolean);
+    const endsWithColon = /[:：]\s*$/.test(t);
+    const noTerminalPunct = !/[.!?…]["'’”)]?$/.test(t);
+    const capRatio =
+      words.filter((w) => /^[A-Z\u0900-\u097F]/.test(w)).length / Math.max(1, words.length);
+    if (endsWithColon || (noTerminalPunct && words.length >= 2 && capRatio >= 0.34)) {
+      out.push({
+        type: "heading_h3",
+        text: t.replace(/[:：]\s*$/, ""),
+        level: 3,
+        confidence: endsWithColon ? 0.85 : 0.7,
+      });
+      continue;
+    }
+    out.push(b);
+  }
+  return out;
+}
+
+const SPACED_PRACTICE_RE = /^\s*P\s*R\s*A\s*C\s*T\s*I\s*C\s*E\s*:?\.?\s*$/i;
+
+// Convert "Practice — Title" headings (and bare "PRACTICE" marker lines,
+// including the spaced-letter "P R A C T I C E" form) plus their content into
+// practice_box blocks.  Consecutive "1. step" paragraphs inside a box are
+// folded into a single ordered list — the visible numbering is preserved.
 function convertPracticeBoxes(blocks: Block[]): Block[] {
+  const STEP_RE = /^\s*(\d{1,2})[.)]\s+(.+)$/s;
+  const collectInner = (startIdx: number): { inner: Block[]; end: number } => {
+    const inner: Block[] = [];
+    let j = startIdx;
+    let pendingSteps: string[] = [];
+    const flushSteps = () => {
+      if (pendingSteps.length > 0) {
+        inner.push({ type: "list_ordered", items: pendingSteps });
+        pendingSteps = [];
+      }
+    };
+    while (j < blocks.length) {
+      const cb = blocks[j];
+      if (cb.type === "heading_h1" || cb.type === "heading_h2" || cb.type === "heading_h3") break;
+      if (cb.type === "paragraph" && SPACED_PRACTICE_RE.test((cb.text || "").trim())) break;
+      const stepMatch = cb.type === "paragraph" ? (cb.text || "").match(STEP_RE) : null;
+      if (stepMatch) {
+        pendingSteps.push(stepMatch[2].trim());
+        j++;
+        continue;
+      }
+      flushSteps();
+      inner.push(cb);
+      j++;
+    }
+    flushSteps();
+    return { inner, end: j };
+  };
+
   const out: Block[] = [];
   let i = 0;
   while (i < blocks.length) {
     const b = blocks[i];
     const t = (b.text || "").trim();
-    // Detect "PRACTICE" as a standalone paragraph (the source uses a bare
-    // "PRACTICE" line followed by a title heading) or as an h1 heading
-    // "Practice — Title".
-    if (b.type === "paragraph" && t === "PRACTICE") {
-      // The next block is the title (often an h3), then the content.
+    if (b.type === "paragraph" && SPACED_PRACTICE_RE.test(t)) {
+      // The next block is the title (an h3, or a short standalone paragraph).
       let label = "";
       let contentStart = i + 1;
       if (contentStart < blocks.length) {
         const next = blocks[contentStart];
         const nt = (next.text || "").trim();
-        if (next.type === "heading_h3" || next.type === "heading_h2" || next.type === "heading_h1") {
+        const shortPara =
+          next.type === "paragraph" && nt.length < 90 && !/^\d/.test(nt);
+        if (next.type.startsWith("heading") || shortPara) {
           label = nt;
           contentStart++;
         }
       }
-      const inner: Block[] = [];
-      while (contentStart < blocks.length) {
-        const cb = blocks[contentStart];
-        if (cb.type === "heading_h1" || cb.type === "heading_h2" || cb.type === "heading_h3") break;
-        if (cb.type === "paragraph" && (cb.text || "").trim() === "PRACTICE") break;
-        inner.push(cb);
-        contentStart++;
-      }
+      const { inner, end } = collectInner(contentStart);
       out.push({ type: "practice_box", label, blocks: inner });
-      i = contentStart;
+      i = end;
       continue;
     }
-    if (b.type === "heading_h1" && /^practice\b/i.test(t)) {
+    if ((b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3") && /^practice\b/i.test(t)) {
       // "Practice — Meeting Sensation Directly" -> label "Meeting Sensation Directly"
       const label = t.replace(/^practice\s*[—\-–:]\s*/i, "").trim();
-      const inner: Block[] = [];
-      let j = i + 1;
-      while (j < blocks.length) {
-        const cb = blocks[j];
-        if (cb.type === "heading_h1") break;
-        if (cb.type === "paragraph" && (cb.text || "").trim() === "PRACTICE") break;
-        inner.push(cb);
-        j++;
-      }
+      const { inner, end } = collectInner(i + 1);
       out.push({ type: "practice_box", label, blocks: inner });
-      i = j;
+      i = end;
       continue;
     }
     out.push(b);
@@ -701,6 +947,10 @@ function detectBookType(
   return "other";
 }
 
+function normalizeLine(s: string): string {
+  return s.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 function looksLikeAuthorName(s: string): boolean {
   const t = s.trim();
   if (!t || t.length > 60) return false;
@@ -720,10 +970,15 @@ function extractTitleAndAuthor(
   let subtitle: string | undefined;
   let author: string | undefined;
 
-  const nameFromFile = filename
+  const base = (filename.split(/[\\/]/).pop() || filename)
     .replace(/\.[^.]+$/, "")
     .replace(/[_-]+/g, " ")
     .trim();
+  // An all-lowercase ASCII filename ("my novel") reads better title-cased on
+  // the title page; anything already cased is left alone.
+  const nameFromFile = /^[a-z0-9 '’\-]+$/.test(base)
+    ? base.replace(/\b[a-z]/g, (c) => c.toUpperCase())
+    : base;
 
   const firstHeadings = blocks.filter(
     (b) =>
@@ -740,8 +995,14 @@ function extractTitleAndAuthor(
     const txt = (b.text || "").trim();
     if (!txt) continue;
     if (b.type === "paragraph") seenParagraph = true;
-    // Chapter markers ("Chapter 1", "Book III") are content headings, never the book title
-    if (matchChapterHeading(b)) continue;
+    // Chapter markers ("Chapter 1", "Book III") are content headings, never
+    // the book title — and nothing after the first one is title-page material.
+    // A manuscript that opens straight into "Chapter 1" has no title page;
+    // fall back to the filename rather than promoting a heading from the body.
+    if (matchChapterHeading(b)) break;
+    // Title-page material lives in the first handful of blocks.  Beyond that
+    // we're in the body; stop before an interior section head gets promoted.
+    if (!title && blockIdx > 8) break;
     if (b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3") {
       if (!title) {
         title = txt;
@@ -826,8 +1087,15 @@ function extractTitleAndAuthor(
   }
 
   // PDF exports often fold the author line into the copyright paragraph — scan
-  // the raw title-page lines directly for a name-shaped line.
+  // the raw title-page lines directly for a name-shaped line. Interior
+  // headings are name-shaped too ("Key Discoveries Awaiting"), so any line
+  // that was parsed as a heading can never become the byline.
   if (!author) {
+    const headingTexts = new Set(
+      blocks
+        .filter((b) => b.type.startsWith("heading"))
+        .map((b) => normalizeLine(b.text || ""))
+    );
     const earlyLines = rawText
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -835,6 +1103,7 @@ function extractTitleAndAuthor(
       .slice(0, 15);
     for (const l of earlyLines) {
       if (l === title || l === subtitle) continue;
+      if (headingTexts.has(normalizeLine(l))) continue;
       if (/^(copyright|©|all rights|isbn)/i.test(l)) continue;
       if (/^(book|chapter|part|section|page|volume)\b/i.test(l)) continue;
       if (/^[—–\-•*"“‘'’\u0964\u0965]/.test(l)) continue; // epigraphs, quotes, ornaments
@@ -953,11 +1222,13 @@ export async function analyzeManuscript(
 
   let blocks: Block[] = [];
   let rawText = "";
+  let parseFixes: string[] = [];
 
   if (isDocx) {
     const result = await parseDocx(buffer);
     blocks = result.blocks;
     rawText = result.rawText;
+    parseFixes = result.fixes || [];
   } else if (isPdf) {
     const result = await parsePdf(buffer);
     blocks = result.blocks;
@@ -989,12 +1260,17 @@ export async function analyzeManuscript(
     // No explicit "Chapter N" markers — fall back to treating every h1 as a
     // chapter boundary.  But exclude front-matter named sections (Preface,
     // Contents, Note, etc.) and Practice sections — those are not chapters.
-    // Part dividers ARE included as chapter segments because they're
-    // structural elements within the body (the generator renders Part
-    // dividers as folio-less section breaks).
+    // Part dividers ARE included as segments because they're structural
+    // elements within the body (rendered as level-0 part openers).
     const FRONT_MATTER_HEADINGS = /^(preface|foreword|prologue|introduction|contents|table of contents|acknowledge?ments?|dedication|note|a note|epilogue|afterword)/i;
+    const isTitleHeading = (b: Block, i: number) =>
+      i < 3 && (b.text || "").trim().toLowerCase() === meta.title.trim().toLowerCase();
     const firstH1 = blocks.findIndex(
-      (b) => b.type === "heading_h1" && !FRONT_MATTER_HEADINGS.test((b.text || "").trim()) && !/^practice\b/i.test((b.text || "").trim())
+      (b, i) =>
+        b.type === "heading_h1" &&
+        !isTitleHeading(b, i) &&
+        !FRONT_MATTER_HEADINGS.test((b.text || "").trim()) &&
+        !/^practice\b/i.test((b.text || "").trim())
     );
     if (firstH1 >= 0) {
       const fakeMatch: ChapterHeadingMatch = {
@@ -1002,6 +1278,7 @@ export async function analyzeManuscript(
         chapterNumber: 1,
         rawTitle: blocks[firstH1].text || "Untitled",
         headingType: "heading_h1",
+        kind: "chapter",
       };
       chapterMatches.push(fakeMatch);
       let counter = 1;
@@ -1010,12 +1287,24 @@ export async function analyzeManuscript(
           const h1Text = (blocks[i].text || "").trim();
           // Skip front-matter named sections and Practice sections.
           if (FRONT_MATTER_HEADINGS.test(h1Text) || /^practice\b/i.test(h1Text)) continue;
+          // Real markers keep their detected kind (part / backmatter).
+          const detected = matchChapterHeading(blocks[i]);
+          if (detected) {
+            detected.blockIndex = i;
+            if (detected.kind !== "backmatter") {
+              counter++;
+              if (!detected.chapterNumber) detected.chapterNumber = counter;
+            }
+            chapterMatches.push(detected);
+            continue;
+          }
           counter++;
           chapterMatches.push({
             blockIndex: i,
             chapterNumber: counter,
             rawTitle: blocks[i].text || `Chapter ${counter}`,
             headingType: "heading_h1",
+            kind: "chapter",
           });
         }
       }
@@ -1041,6 +1330,17 @@ export async function analyzeManuscript(
     }
   }
 
+  // Does a block read as a short standalone title line (a chapter title
+  // following a bare "CHAPTER N" marker, or a part title/subtitle)?
+  const isTitleLine = (b: Block): boolean => {
+    if (b.type === "heading_h1" || b.type === "heading_h2" || b.type === "heading_h3") return true;
+    if (b.type !== "paragraph") return false;
+    const t = (b.text || "").trim();
+    if (!t || t.length > 90) return false;
+    if (/[.!?…]["'’”)]?$/.test(t) && t.split(/\s+/).length > 4) return false;
+    return true;
+  };
+
   if (chapterMatches.length > 0) {
     const firstIdx = chapterMatches[0].blockIndex;
     for (let i = 0; i < firstIdx; i++) {
@@ -1055,11 +1355,58 @@ export async function analyzeManuscript(
       for (let i = start; i < end; i++) {
         segmentBlocks.push(blocks[i]);
       }
+      // A chapter = ONE heading node {number, title}.  A bare marker line
+      // ("CHAPTER TEN") followed by a title line is merged here — the title
+      // block is consumed so it never renders as a stray body paragraph or
+      // as a second heading.
+      if (cm.takeTitleFromNext && segmentBlocks.length > 0 && isTitleLine(segmentBlocks[0])) {
+        cm.rawTitle = (segmentBlocks[0].text || "").trim();
+        segmentBlocks.shift();
+        // A second short line after a part title is the subtitle.
+        if (
+          cm.kind === "part" &&
+          segmentBlocks.length > 0 &&
+          segmentBlocks[0].type === "paragraph" &&
+          (segmentBlocks[0].text || "").trim().length <= 120
+        ) {
+          (cm as ChapterHeadingMatch & { subtitle?: string }).subtitle =
+            (segmentBlocks[0].text || "").trim();
+          segmentBlocks.shift();
+        }
+      } else if (cm.kind === "part" && !cm.takeTitleFromNext && segmentBlocks.length > 0 &&
+                 segmentBlocks[0].type === "paragraph" &&
+                 (segmentBlocks[0].text || "").trim().length <= 120) {
+        // "PART ONE — The Break" still may carry a subtitle line after it.
+        const maybeSub = (segmentBlocks[0].text || "").trim();
+        if (!/[.!?]$/.test(maybeSub) || maybeSub.length < 40) {
+          (cm as ChapterHeadingMatch & { subtitle?: string }).subtitle = maybeSub;
+          segmentBlocks.shift();
+        }
+      }
       chapterSegments.push({ match: cm, blocks: segmentBlocks });
     }
   }
 
   const backMatterBlocks: Block[] = [];
+  const backMatterEntries: BackMatterEntry[] = [];
+
+  // Back-matter boundary segments become their own entries, each titled with
+  // its own verbatim heading — "Endnotes" is never labelled "About the Author".
+  const keptSegments: typeof chapterSegments = [];
+  for (const seg of chapterSegments) {
+    if (seg.match.kind === "backmatter") {
+      backMatterEntries.push({
+        type: detectBackMatterType(seg.blocks.concat(seg.match.rawTitle ? [{ type: "paragraph", text: seg.match.rawTitle }] : [])),
+        title: seg.match.rawTitle,
+        blocks: seg.blocks,
+      });
+    } else {
+      keptSegments.push(seg);
+    }
+  }
+  chapterSegments.length = 0;
+  chapterSegments.push(...keptSegments);
+
   const lastSegmentWords =
     chapterSegments.length > 0
       ? countBlocksWords(chapterSegments[chapterSegments.length - 1].blocks)
@@ -1081,6 +1428,7 @@ export async function analyzeManuscript(
         lastTitleLower.includes("notes") ||
         lastTitleLower.includes("afterword") ||
         lastTitleLower.includes("epilogue") ||
+        lastTitleLower.includes("about the author") ||
         lastTitleLower.includes("references")) &&
       lastSegmentWords < avgWords * 1.5
     ) {
@@ -1107,25 +1455,40 @@ export async function analyzeManuscript(
 
   const chapters: ChapterEntry[] = chapterSegments.map((seg, idx) => {
     const number = seg.match.chapterNumber || idx + 1;
-    // Convert Practice headings + their content into practice_box blocks (#4).
-    const processedBlocks = convertPracticeBoxes(seg.blocks);
+    // Convert Practice headings + their content into practice_box blocks,
+    // then promote run-in subheads to level-3 headings.
+    const processedBlocks = detectRunInHeads(
+      convertPracticeBoxes(detectBodyQuotes(seg.blocks))
+    );
     const sections = splitIntoSections(processedBlocks);
     const wordCount = countBlocksWords(seg.blocks);
+    const kind = seg.match.kind === "part" ? ("part" as const) : ("chapter" as const);
+    const subtitle = (seg.match as ChapterHeadingMatch & { subtitle?: string }).subtitle;
     return {
       number,
-      title: seg.match.rawTitle || `Chapter ${number}`,
+      title: seg.match.rawTitle || (kind === "part" ? "" : `Chapter ${number}`),
       wordCount,
       sections,
+      kind,
+      label: seg.match.marker,
+      subtitle,
     };
   });
 
-  const backMatter: BackMatterEntry[] = [];
+  const backMatter: BackMatterEntry[] = [...backMatterEntries];
   if (backMatterBlocks.length > 0) {
+    // Heuristic tail catch (not a labelled boundary): the first block is the
+    // heading itself, so use its text verbatim as the entry title and drop it
+    // from the body so it doesn't render twice.
+    const firstText = (backMatterBlocks[0]?.text || "").trim();
     const bmType = detectBackMatterType(backMatterBlocks);
+    const useFirstAsTitle = BACK_MATTER_TITLE.test(firstText);
     backMatter.push({
       type: bmType,
-      title: bmType.charAt(0).toUpperCase() + bmType.slice(1).replace(/_/g, " "),
-      blocks: backMatterBlocks,
+      title: useFirstAsTitle
+        ? firstText
+        : bmType.charAt(0).toUpperCase() + bmType.slice(1).replace(/_/g, " "),
+      blocks: useFirstAsTitle ? backMatterBlocks.slice(1) : backMatterBlocks,
     });
   }
 
@@ -1149,6 +1512,21 @@ export async function analyzeManuscript(
   };
 
   structure.warnings = generateWarnings(blocks, chapters, estimatedPages);
+  // Surface every mechanical repair the parser logged so the author can audit
+  // exactly what was touched.
+  for (const fix of parseFixes) {
+    structure.warnings.push({ code: "text_repair", level: "info", message: fix });
+  }
+
+  // Pre-generation review checklist — flags things a human should eyeball
+  // (unbalanced quotes, truncated-looking sentences, low-confidence heads,
+  // odd tokens, very long paragraphs) before the book is generated.
+  try {
+    const { runPreflight } = await import("../renderer/preflight");
+    structure.preflight = runPreflight(structure);
+  } catch {
+    // Preflight is advisory — never fail analysis over it.
+  }
 
   try {
     structure = await llmEnhance(structure, rawText);
