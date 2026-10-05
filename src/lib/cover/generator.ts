@@ -33,7 +33,19 @@ export interface CoverDesignConfig {
   layoutStyle: CoverLayout;
   format: CoverFormat;
   pageCount?: number;
+  /** Interior trim size — must match the interior PDF or KDP rejects the cover. */
+  trimSize?: CoverTrim;
+  /** Interior paper stock; drives the spine width. Defaults to cream. */
+  paper?: CoverPaper;
 }
+
+export type CoverTrim = "5x8" | "5.5x8.5" | "6x9" | "8.5x11";
+export type CoverPaper = "white" | "cream";
+
+/** Artifact type of the stored Kindle/eBook front cover (JPG, 1600×2560). */
+export const EBOOK_COVER_ARTIFACT = "cover_ebook_jpg";
+/** KDP's recommended eBook cover size (1:1.6). */
+export const EBOOK_COVER_PX = { w: 1600, h: 2560 } as const;
 
 export interface CoverPreset {
   id: string;
@@ -144,27 +156,85 @@ export const COVER_PRESETS: CoverPreset[] = [
 // ---------------------------------------------------------------------------
 // Design-space geometry
 // ---------------------------------------------------------------------------
-// The front cover panel is 800×1280 px of design space mapping to a
-// 6.125″ × 9.375″ physical cover (6×9 trim + 0.125″ bleed on all sides).
+// Layouts are authored in an 800×1280 design panel (exactly the 1:1.6 eBook
+// cover).  A paperback panel has a different aspect — trim + 0.125″ bleed on
+// the outer edge horizontally, + 0.125″ top and bottom — so its design height
+// is derived from the physical size and the authored layout is scaled
+// uniformly into it.  Nothing is ever stretched on export.
 export const PANEL_W = 800;
 export const COVER_H = 1280;
-const PX_PER_IN = PANEL_W / 6.125; // ≈ 130.6 horizontal px per inch
+const BLEED_IN = 0.125;
 
-// KDP paperback spine: cream paper ≈ 0.0025″/page (white ≈ 0.002252″).
-// We default to cream so the spine is never too narrow.
-export function spineWidthInches(pageCount: number): number {
+export const TRIM_SIZES_IN: Record<CoverTrim, { w: number; h: number }> = {
+  "5x8": { w: 5, h: 8 },
+  "5.5x8.5": { w: 5.5, h: 8.5 },
+  "6x9": { w: 6, h: 9 },
+  "8.5x11": { w: 8.5, h: 11 },
+};
+
+// KDP paperback paper thickness per page (black-ink interiors).
+export const PAPER_IN_PER_PAGE: Record<CoverPaper, number> = {
+  white: 0.002252,
+  cream: 0.0025,
+};
+
+/** KDP only allows spine text on books with more than 79 pages. */
+export const KDP_SPINE_TEXT_MIN_PAGES = 80;
+
+export function trimOf(config: Pick<CoverDesignConfig, "trimSize">): { w: number; h: number } {
+  return TRIM_SIZES_IN[config.trimSize || "6x9"] || TRIM_SIZES_IN["6x9"];
+}
+
+export function spineWidthInches(pageCount: number, paper: CoverPaper = "cream"): number {
   const pages = Math.max(24, Math.min(828, Math.round(pageCount || 100)));
-  return Math.max(0.125, pages * 0.0025);
+  return pages * (PAPER_IN_PER_PAGE[paper] ?? PAPER_IN_PER_PAGE.cream);
 }
 
-export function spineWidthPx(pageCount: number): number {
-  return Math.max(20, Math.round(spineWidthInches(pageCount) * PX_PER_IN));
+export interface CoverGeometry {
+  /** Design height of one panel. */
+  panelH: number;
+  pxPerIn: number;
+  spinePx: number;
+  /** Total design width. */
+  width: number;
+  /** Uniform scale + horizontal inset that maps the 800×1280 layout into a panel. */
+  scale: number;
+  insetX: number;
+  /** Horizontal bleed in design px (outer edge of each panel). */
+  bleedPx: number;
 }
 
-// Physical cover dimensions in inches (KDP 6×9 spec).
+export function coverGeometry(config: CoverDesignConfig): CoverGeometry {
+  if (config.format !== "paperback") {
+    return { panelH: COVER_H, pxPerIn: PANEL_W / 6, spinePx: 0, width: PANEL_W, scale: 1, insetX: 0, bleedPx: 0 };
+  }
+  const trim = trimOf(config);
+  const pxPerIn = PANEL_W / (trim.w + BLEED_IN);
+  const panelH = Math.round((trim.h + 2 * BLEED_IN) * pxPerIn);
+  const spinePx = spineWidthInches(config.pageCount || 100, config.paper) * pxPerIn;
+  const scale = panelH / COVER_H;
+  return {
+    panelH,
+    pxPerIn,
+    spinePx,
+    width: PANEL_W * 2 + spinePx,
+    scale,
+    insetX: (PANEL_W - PANEL_W * scale) / 2,
+    bleedPx: BLEED_IN * pxPerIn,
+  };
+}
+
+export function spineWidthPx(pageCount: number, config?: Partial<CoverDesignConfig>): number {
+  return coverGeometry({ ...(config as CoverDesignConfig), format: "paperback", pageCount }).spinePx;
+}
+
+// Physical cover dimensions in inches (KDP full-wrap spec: bleed on all four
+// outer edges, none at the spine folds).
 export function coverPhysicalSize(config: CoverDesignConfig): { wIn: number; hIn: number } {
   if (config.format === "paperback") {
-    return { wIn: 6.125 * 2 + spineWidthInches(config.pageCount || 100), hIn: 9.375 };
+    const trim = trimOf(config);
+    const spine = spineWidthInches(config.pageCount || 100, config.paper);
+    return { wIn: 2 * (trim.w + BLEED_IN) + spine, hIn: trim.h + 2 * BLEED_IN };
   }
   return { wIn: 6, hIn: 9.6 }; // ebook front, 1:1.6 ratio
 }
@@ -504,27 +574,29 @@ function backCoverBlocks(config: CoverDesignConfig, fontStack: string): string {
 }
 
 // Print-production overlay: bleed edge, trim line, safe zone, spine folds.
-function guidesSvg(isPaperback: boolean, spinePx: number): string {
-  const bleed = Math.round(0.125 * PX_PER_IN); // 16px — trim line
-  const safe = Math.round(0.375 * PX_PER_IN); // 49px — safe zone
-  const W = isPaperback ? PANEL_W * 2 + spinePx : PANEL_W;
-  const spineIn = spinePx / PX_PER_IN;
+function guidesSvg(isPaperback: boolean, g: CoverGeometry): string {
+  const H = g.panelH;
+  const W = g.width;
+  // eBooks have no bleed; the safe zone is a comfortable reading inset.
+  const bleed = isPaperback ? g.bleedPx : 0;
+  const safe = bleed + 0.25 * g.pxPerIn;
+  const spineIn = g.spinePx / g.pxPerIn;
 
   const spineGuides = isPaperback
     ? `
-  <line x1="${PANEL_W}" y1="0" x2="${PANEL_W}" y2="${COVER_H}" stroke="#DC2626" stroke-width="1.5" stroke-dasharray="10,5" />
-  <line x1="${PANEL_W + spinePx}" y1="0" x2="${PANEL_W + spinePx}" y2="${COVER_H}" stroke="#DC2626" stroke-width="1.5" stroke-dasharray="10,5" />
-  <text x="${PANEL_W + spinePx / 2}" y="30" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="700" fill="#DC2626">SPINE ${spineIn.toFixed(
+  <line x1="${PANEL_W}" y1="0" x2="${PANEL_W}" y2="${H}" stroke="#DC2626" stroke-width="1.5" stroke-dasharray="10,5" />
+  <line x1="${PANEL_W + g.spinePx}" y1="0" x2="${PANEL_W + g.spinePx}" y2="${H}" stroke="#DC2626" stroke-width="1.5" stroke-dasharray="10,5" />
+  <text x="${PANEL_W + g.spinePx / 2}" y="30" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="700" fill="#DC2626">SPINE ${spineIn.toFixed(
         3
       )}″</text>`
     : "";
 
   return `<g font-family="sans-serif">
-  <rect x="${bleed}" y="${bleed}" width="${W - bleed * 2}" height="${COVER_H - bleed * 2}" fill="none" stroke="#DC2626" stroke-width="1" stroke-dasharray="6,4" opacity="0.8" />
-  <rect x="${safe}" y="${safe}" width="${W - safe * 2}" height="${COVER_H - safe * 2}" fill="none" stroke="#2563EB" stroke-width="1" stroke-dasharray="2,4" opacity="0.7" />
+  ${isPaperback ? `<rect x="${bleed}" y="${bleed}" width="${W - bleed * 2}" height="${H - bleed * 2}" fill="none" stroke="#DC2626" stroke-width="1" stroke-dasharray="6,4" opacity="0.8" />` : ""}
+  <rect x="${safe}" y="${safe}" width="${W - safe * 2}" height="${H - safe * 2}" fill="none" stroke="#2563EB" stroke-width="1" stroke-dasharray="2,4" opacity="0.7" />
   ${spineGuides}
-  <text x="${bleed + 6}" y="${COVER_H - bleed - 8}" font-size="11" fill="#DC2626" font-weight="600">TRIM</text>
-  <text x="${safe + 6}" y="${COVER_H - safe - 8}" font-size="11" fill="#2563EB" font-weight="600">SAFE ZONE</text>
+  ${isPaperback ? `<text x="${bleed + 6}" y="${H - bleed - 8}" font-size="11" fill="#DC2626" font-weight="600">TRIM</text>` : ""}
+  <text x="${safe + 6}" y="${H - safe - 8}" font-size="11" fill="#2563EB" font-weight="600">SAFE ZONE</text>
 </g>`;
 }
 
@@ -538,8 +610,8 @@ export interface CoverSvgOptions {
 
 export function generateCoverSvg(config: CoverDesignConfig, opts: CoverSvgOptions = {}): string {
   const isPaperback = config.format === "paperback";
-  const spinePx = isPaperback ? spineWidthPx(config.pageCount || 100) : 0;
-  const width = isPaperback ? PANEL_W * 2 + spinePx : PANEL_W;
+  const g = coverGeometry(config);
+  const { spinePx, width, panelH: H } = g;
 
   const fontStack =
     config.typography.fontFamily === "cinzel"
@@ -551,7 +623,7 @@ export function generateCoverSvg(config: CoverDesignConfig, opts: CoverSvgOption
           : "'Poppins', 'Helvetica Neue', sans-serif";
 
   const front = frontCoverBlocks(config, fontStack);
-  const guides = opts.showGuides ? guidesSvg(isPaperback, spinePx) : "";
+  const guides = opts.showGuides ? guidesSvg(isPaperback, g) : "";
 
   if (!isPaperback) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PANEL_W} ${COVER_H}" width="100%" height="100%">
@@ -572,29 +644,37 @@ export function generateCoverSvg(config: CoverDesignConfig, opts: CoverSvgOption
 </svg>`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${COVER_H}" width="100%" height="100%">
+  // Layouts are centred on the trim area, not the bleed-inclusive panel: the
+  // back panel's bleed is on its left edge, the front panel's on its right.
+  const fit = (dx: number) => `translate(${g.insetX + dx} 0) scale(${g.scale})`;
+  // KDP: spine text only above 79 pages, with ≥0.0625″ clearance each side.
+  const spineFont = Math.min(16, (spinePx - 0.125 * g.pxPerIn) * 0.75);
+  const showSpineText = (config.pageCount || 100) >= KDP_SPINE_TEXT_MIN_PAGES && spineFont >= 6;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${H}" width="100%" height="100%">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="${config.palette.primary}" />
       <stop offset="100%" stop-color="${config.palette.secondary}" />
     </linearGradient>
   </defs>
-  <rect width="${width}" height="${COVER_H}" fill="url(#bgGrad)" />
-  ${backCoverBlocks(config, fontStack)}
-  <rect x="${PANEL_W}" y="0" width="${spinePx}" height="${COVER_H}" fill="#000000" opacity="0.18" />
+  <rect width="${width}" height="${H}" fill="url(#bgGrad)" />
+  <g transform="${fit(g.bleedPx / 2)}">
+    ${backCoverBlocks(config, fontStack)}
+  </g>
+  <rect x="${PANEL_W}" y="0" width="${spinePx}" height="${H}" fill="#000000" opacity="0.18" />
   ${
-    // KDP rejects spine text below ~100 pages; physically it can't fit a
-    // readable glyph under ~80 pages of cream paper (0.2″ spine).
-    (config.pageCount || 100) >= 80
-      ? `<g transform="translate(${PANEL_W + spinePx / 2}, ${COVER_H / 2}) rotate(90)">
-    <text x="0" y="5" text-anchor="middle" font-family="${fontStack}" font-size="16" font-weight="700" fill="${config.palette.textColor}" letter-spacing="2">${escapeXml(
+    showSpineText
+      ? `<g transform="translate(${PANEL_W + spinePx / 2}, ${H / 2}) rotate(90)">
+    <text x="0" y="${(spineFont * 0.35).toFixed(2)}" text-anchor="middle" font-family="${fontStack}" font-size="${spineFont.toFixed(2)}" font-weight="700" fill="${config.palette.textColor}" letter-spacing="2">${escapeXml(
       config.spineText || formatTitleText(config.title, config.typography.titleCase)
     )} · ${escapeXml(config.author)}</text>
   </g>`
       : ""
   }
   <g transform="translate(${PANEL_W + spinePx}, 0)">
-    ${front}
+    <g transform="${fit(-g.bleedPx / 2)}">
+      ${front}
+    </g>
   </g>
   ${guides}
 </svg>`;
@@ -623,12 +703,13 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 export async function generateCoverPdf(config: CoverDesignConfig): Promise<Buffer> {
   const doc = await PDFDocument.create();
 
-  // Print points: 1 inch = 72 points. 6×9 trim + 0.125″ bleed.
+  // Print points: 1 inch = 72 points. Trim + 0.125″ bleed on the outer edges.
   const isPaperback = config.format === "paperback";
-  const spinePt = isPaperback ? spineWidthInches(config.pageCount || 100) * 72 : 0;
-  const panelPt = 6.125 * 72; // 441
+  const trim = trimOf(config);
+  const spinePt = isPaperback ? spineWidthInches(config.pageCount || 100, config.paper) * 72 : 0;
+  const panelPt = isPaperback ? (trim.w + BLEED_IN) * 72 : 6 * 72;
   const coverWidth = isPaperback ? panelPt * 2 + spinePt : panelPt;
-  const coverHeight = 9.375 * 72; // 675
+  const coverHeight = isPaperback ? (trim.h + 2 * BLEED_IN) * 72 : 9.6 * 72;
 
   const page = doc.addPage([coverWidth, coverHeight]);
 
@@ -691,7 +772,7 @@ export async function generateCoverPdf(config: CoverDesignConfig): Promise<Buffe
   page.drawText(pubText, { x: centerX - pubW / 2, y: 50, size: 8, font: fontNormal, color: rgb(aColor.r, aColor.g, aColor.b) });
 
   if (isPaperback) {
-    if ((config.pageCount || 100) >= 80) {
+    if ((config.pageCount || 100) >= KDP_SPINE_TEXT_MIN_PAGES) {
       const spineLabel = `${config.spineText || formattedTitle}  •  ${config.author}`;
       const spineTextW = fontBold.widthOfTextAtSize(spineLabel, 10);
       page.drawText(spineLabel, {

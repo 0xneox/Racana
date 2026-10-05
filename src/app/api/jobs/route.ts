@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
       include: {
         manuscriptAsset: { select: { fileName: true, pageCountEstimate: true } },
         templateChoice: { select: { name: true, personality: true } },
+        payments: { select: { status: true } },
       },
     });
 

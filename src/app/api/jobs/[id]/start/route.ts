@@ -29,24 +29,55 @@ export async function POST(
 
     const job = await prisma.bookJob.findUnique({
       where: { id: params.id },
-      include: { manuscriptAsset: true, templateChoice: true, settings: true },
+      include: {
+        manuscriptAsset: true,
+        templateChoice: true,
+        settings: true,
+        payments: {
+          orderBy: { createdAt: "desc" },
+          select: { status: true, createdAt: true, updatedAt: true },
+        },
+      },
     });
 
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
 
-    // Idempotent: an already-rendered book doesn't re-enter the pipeline.
+    // Idempotent: an already-rendered book doesn't re-enter the pipeline —
+    // unless the caller explicitly asks for a re-render ({regenerate: true}),
+    // which paid books get free for 30 days after payment.
     if (job.status === "ready") {
       const existing = await prisma.renderArtifact.findFirst({
         where: { jobId: job.id, artifactType: "interior_pdf" },
       });
       if (existing) {
-        return NextResponse.json({
-          success: true,
-          message: "Book already generated",
-          jobId: job.id,
-        });
+        const body = await request.json().catch(() => ({}));
+        if (body?.regenerate !== true) {
+          return NextResponse.json({
+            success: true,
+            message: "Book already generated",
+            jobId: job.id,
+          });
+        }
+        const paidPayment = (job.payments as any[])?.find((p: any) => p.status === "paid");
+        if (!paidPayment) {
+          return NextResponse.json(
+            { error: "Re-generation is included with purchase.", paymentRequired: true },
+            { status: 402 }
+          );
+        }
+        const paidAt = new Date(paidPayment.updatedAt || paidPayment.createdAt).getTime();
+        if (Date.now() - paidAt > 30 * 24 * 60 * 60 * 1000) {
+          return NextResponse.json(
+            { error: "The 30-day free re-generation window for this book has expired." },
+            { status: 403 }
+          );
+        }
+        // Fresh artifacts — the worker recreates them all. Stale rows are
+        // removed so downloads never serve the previous render.
+        await prisma.renderArtifact.deleteMany({ where: { jobId: job.id } });
+        await prisma.qAReport.deleteMany({ where: { jobId: job.id } });
       }
     }
 

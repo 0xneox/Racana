@@ -3,6 +3,7 @@ import prisma from "@/lib/db";
 import { BookType, SettingsMode, TemplateKey, TrimSize } from "@prisma/client";
 import { GENERIC_INTERNAL_ERROR, logServerError, requireIdentity, requireJobOwner } from "@/lib/auth-utils";
 import { EMBEDDED_FONT_FAMILIES } from "@/lib/templates/engine";
+import { deleteJobEverywhere } from "@/lib/jobs/delete";
 
 const TRIM_SIZES = new Set<string>(Object.values(TrimSize));
 // Launch catalogue — only the audited templates can be selected for new
@@ -43,6 +44,7 @@ const ALLOWED_BOOK_SETTINGS_FIELDS: Record<string, (v: any) => any> = {
   pageNumbers: (v) => (typeof v === "string" && PAGE_NUMBER_CHOICES.has(v) ? v : undefined),
   runningHeaders: (v) => (typeof v === "boolean" ? v : undefined),
   chapterOpenRecto: (v) => (typeof v === "boolean" ? v : undefined),
+  includeColophon: (v) => (typeof v === "boolean" ? v : undefined),
   bleed: (v) => (typeof v === "boolean" ? v : undefined),
   bleedSizeMm: (v) => {
     const n = Number(v);
@@ -86,7 +88,7 @@ export async function GET(
         structureJson: true,
         payments: {
           orderBy: { createdAt: "desc" },
-          select: { id: true, status: true, amountCents: true, currency: true, createdAt: true },
+          select: { id: true, status: true, amountCents: true, currency: true, createdAt: true, updatedAt: true },
         },
       },
     });
@@ -227,6 +229,47 @@ export async function PATCH(
     return NextResponse.json({ success: true, job: updatedJob });
   } catch (err) {
     logServerError("Jobs PATCH API", err);
+    return NextResponse.json(
+      { error: GENERIC_INTERNAL_ERROR },
+      { status: 500 }
+    );
+  }
+}
+
+// Deletes the book and everything it produced — manuscript file, rendered
+// PDFs, previews, cover files, structure and settings. Owner only.
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const identity = await requireIdentity();
+
+    const ownerRes = await requireJobOwner(params.id, {
+      userId: identity.user?.id,
+      guestId: identity.guestId,
+    });
+    if (ownerRes.error) return ownerRes.error;
+
+    // Never pull a job out from under the renderer mid-flight.
+    const job = await prisma.bookJob.findUnique({
+      where: { id: params.id },
+      select: { status: true },
+    });
+    if (!job) {
+      return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
+    if (["analyzing", "queued", "typesetting", "qa", "fixing"].includes(job.status)) {
+      return NextResponse.json(
+        { error: "This book is still being generated — try again once it finishes." },
+        { status: 409 }
+      );
+    }
+
+    await deleteJobEverywhere(params.id);
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    logServerError("Jobs DELETE API", err);
     return NextResponse.json(
       { error: GENERIC_INTERNAL_ERROR },
       { status: 500 }

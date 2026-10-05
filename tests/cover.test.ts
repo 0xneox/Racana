@@ -46,9 +46,10 @@ describe("Cover Page Studio Generator", () => {
     });
 
     expect(svg).toContain("<svg");
-    // Full-wrap width = 2 panels (2×800) + spine for 220pp cream paper.
+    // Full-wrap width = 2 panels (2×800) + spine for 220pp cream paper;
+    // height is 6×9 trim + bleed (9.25″) at the panel's px-per-inch.
     const expectedW = 1600 + spineWidthPx(220);
-    expect(svg).toContain(`viewBox="0 0 ${expectedW} 1280"`);
+    expect(svg).toContain(`viewBox="0 0 ${expectedW} ${Math.round(9.25 * (800 / 6.125))}"`);
     expect(svg).toContain("PRAISE &amp; OVERVIEW");
     expect(svg).toContain("A classic guide to spiritual strength and fearlessness.");
     expect(svg).toContain("THE ART OF LIVING");

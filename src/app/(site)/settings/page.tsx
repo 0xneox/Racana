@@ -68,6 +68,7 @@ function SettingsContent() {
   const [pageNumbers, setPageNumbers] = useState("bottom_center");
   const [runningHeaders, setRunningHeaders] = useState(true);
   const [chapterOpenRecto, setChapterOpenRecto] = useState(true);
+  const [includeColophon, setIncludeColophon] = useState(true);
   const [bleed, setBleed] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -98,6 +99,7 @@ function SettingsContent() {
               setPageNumbers(s.pageNumbers || "bottom_center");
               setRunningHeaders(s.runningHeaders ?? true);
               setChapterOpenRecto(s.chapterOpenRecto ?? true);
+              setIncludeColophon(s.includeColophon ?? true);
               setBleed(s.bleed ?? false);
             }
           }
@@ -135,6 +137,7 @@ function SettingsContent() {
               pageNumbers,
               runningHeaders,
               chapterOpenRecto,
+              includeColophon,
               bleed,
             },
           }),
@@ -391,6 +394,17 @@ function SettingsContent() {
                   <span>{t("bleed")}</span>
                 </label>
               </div>
+
+              <label className="flex items-center gap-2 cursor-pointer pt-3 border-t border-[#F4EFEA]">
+                <input
+                  type="checkbox"
+                  checked={includeColophon}
+                  onChange={(e) => setIncludeColophon(e.target.checked)}
+                  className="rounded border-[#D6CEBE] text-[#1C1917] focus:ring-0"
+                />
+                <span>{t("colophon")}</span>
+                <span className="text-xs text-[#A8A29E]">{t("colophonHint")}</span>
+              </label>
             </div>
           )}
         </div>

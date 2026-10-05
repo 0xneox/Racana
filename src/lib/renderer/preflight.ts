@@ -38,7 +38,7 @@ function blockTexts(b: Block): string[] {
 }
 
 const TERMINAL_PUNCT = /[.!?…:;"'’”)\]]\s*$/;
-const ODD_TOKEN = /(^|\s)(#\d+|\[?\?\]|<unknown>|TODO|TBD|\bXXX\b)(\s|$|[,.])/;
+const ODD_TOKEN = /(^|\s)(#\d+|\[?\?\]|<unknown>|TODO|TBD|\bXXX\b)(\s|$|[,.:;])/;
 
 export function runPreflight(structure: BookStructureV1): PreflightReport {
   const items: PreflightItem[] = [];

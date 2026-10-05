@@ -6,8 +6,11 @@ import {
   generateCoverPdf,
   generateCoverSvg,
   COVER_PRESETS,
+  EBOOK_COVER_ARTIFACT,
   type CoverDesignConfig,
+  type CoverTrim,
 } from "@/lib/cover/generator";
+import { normalizeTrimSize } from "@/lib/templates/engine";
 import type { BookStructureV1 } from "@/lib/manuscript/types";
 
 async function serveStoredArtifact(
@@ -73,7 +76,7 @@ export async function GET(
     // High-resolution print exports are only available after purchase.
     // The SVG preview and studio configuration are always free so authors
     // can design and iterate before unlocking the final files.
-    if ((exportFormat === "pdf" || exportFormat === "png") && !paid) {
+    if ((exportFormat === "pdf" || exportFormat === "png" || exportFormat === "jpg") && !paid) {
       return NextResponse.json(
         {
           error: "Print-ready cover PDF and high-res PNG are included with your purchase. Pay ₹2,450 to unlock all exports.",
@@ -89,11 +92,15 @@ export async function GET(
       job.manuscriptAsset?.fileName?.replace(/\.[^/.]+$/, "") ||
       "My Book";
     const author = job.structureJson?.detectedAuthor || "Author Name";
+    // The typeset interior's real page count (from print QA) sets the spine;
+    // estimates are only a fallback until the interior has been rendered.
+    const renderedPages = job.qaReports[0]?.pageCount;
     const pageCount =
-      job.qaReports[0]?.pageCount ||
+      renderedPages ||
       job.manuscriptAsset?.pageCountEstimate ||
       structure?.estimatedPages ||
       150;
+    const trimSize = normalizeTrimSize(job.settings?.trimSize || job.trimSize) as CoverTrim;
 
     // Pick recommended preset based on detected book type / script
     let defaultPreset = COVER_PRESETS[0]; // Royal Saffron
@@ -134,8 +141,13 @@ export async function GET(
       layoutStyle: defaultPreset.layoutStyle,
       format: "ebook",
       pageCount,
+      paper: "cream",
       ...saved,
+      // Physical facts of the interior always win over a stale saved design.
+      trimSize,
+      ...(renderedPages ? { pageCount: renderedPages } : {}),
     };
+    if (trimSize === "8.5x11") config.paper = "white"; // KDP has no cream stock at 8.5×11
 
     const baseName = title.replace(/[^a-zA-Z0-9_-]/g, "_");
 
@@ -145,7 +157,7 @@ export async function GET(
       const stored = await serveStoredArtifact(params.id, "cover_pdf", `${baseName}_cover.pdf`);
       if (stored) return stored;
 
-      const pdfBytes = await generateCoverPdf(config);
+      const pdfBytes = await generateCoverPdf({ ...config, format: "paperback" });
       return new NextResponse(new Uint8Array(pdfBytes), {
         headers: {
           "Content-Type": "application/pdf",
@@ -164,6 +176,15 @@ export async function GET(
       );
     }
 
+    if (exportFormat === "jpg") {
+      const stored = await serveStoredArtifact(params.id, EBOOK_COVER_ARTIFACT, `${baseName}_kindle_cover.jpg`);
+      if (stored) return stored;
+      return NextResponse.json(
+        { error: "No Kindle cover saved yet — save your design in the Cover Studio." },
+        { status: 404 }
+      );
+    }
+
     if (exportFormat === "svg") {
       const svg = generateCoverSvg(config);
       return new NextResponse(svg, {
@@ -176,11 +197,14 @@ export async function GET(
     return NextResponse.json({
       config,
       presets: COVER_PRESETS,
+      paid,
       bookInfo: {
         id: job.id,
         title,
         author,
-        pageCount,
+        pageCount: config.pageCount,
+        pageCountFromInterior: !!renderedPages,
+        trimSize,
         bookType: job.bookType,
       },
     });
@@ -217,15 +241,19 @@ export async function POST(
     let config: CoverDesignConfig | null = null;
     let pdfFile: Blob | null = null;
     let pngFile: Blob | null = null;
+    let ebookFile: Blob | null = null;
 
     if (request.headers.get("content-type")?.includes("multipart/form-data")) {
       const form = await request.formData();
       const raw = form.get("config");
       config = typeof raw === "string" ? (JSON.parse(raw) as CoverDesignConfig) : null;
-      const pdf = form.get("pdf");
-      const png = form.get("png");
-      pdfFile = pdf instanceof Blob ? pdf : null;
-      pngFile = png instanceof Blob ? png : null;
+      const blob = (k: string) => {
+        const v = form.get(k);
+        return v instanceof Blob && v.size > 0 ? v : null;
+      };
+      pdfFile = blob("pdf");
+      pngFile = blob("png");
+      ebookFile = blob("ebook");
     } else {
       const body = await request.json();
       config = body.config as CoverDesignConfig;
@@ -243,48 +271,39 @@ export async function POST(
       "artifacts"
     );
 
-    // Store the client-rendered PDF, or fall back to server rendering.
-    const pdfBuffer = pdfFile
-      ? Buffer.from(await pdfFile.arrayBuffer())
-      : await generateCoverPdf(config);
-    const pdfKey = `artifacts/${params.id}/cover_print_ready.pdf`;
-    await uploadToStorage(pdfKey, pdfBuffer, "application/pdf", "artifacts");
-    await prisma.renderArtifact.deleteMany({
-      where: { jobId: params.id, artifactType: "cover_pdf" },
-    });
-    await prisma.renderArtifact.create({
-      data: {
-        jobId: params.id,
-        artifactType: "cover_pdf",
-        s3Key: pdfKey,
-        s3Bucket: "artifacts",
-        fileSizeBytes: pdfBuffer.length,
-        downloadUrl: `/api/jobs/${params.id}/cover?export=pdf`,
-        mimeType: "application/pdf",
-      },
-    });
-
-    if (pngFile) {
-      const pngBuffer = Buffer.from(await pngFile.arrayBuffer());
-      const pngKey = `artifacts/${params.id}/cover_print_ready.png`;
-      await uploadToStorage(pngKey, pngBuffer, "image/png", "artifacts");
-      await prisma.renderArtifact.deleteMany({
-        where: { jobId: params.id, artifactType: "cover_png" },
-      });
+    const storeArtifact = async (artifactType: string, file: string, buf: Buffer, mimeType: string, exportParam: string) => {
+      const s3Key = `artifacts/${params.id}/${file}`;
+      await uploadToStorage(s3Key, buf, mimeType, "artifacts");
+      await prisma.renderArtifact.deleteMany({ where: { jobId: params.id, artifactType } });
       await prisma.renderArtifact.create({
         data: {
           jobId: params.id,
-          artifactType: "cover_png",
-          s3Key: pngKey,
+          artifactType,
+          s3Key,
           s3Bucket: "artifacts",
-          fileSizeBytes: pngBuffer.length,
-          downloadUrl: `/api/jobs/${params.id}/cover?export=png`,
-          mimeType: "image/png",
+          fileSizeBytes: buf.length,
+          downloadUrl: `/api/jobs/${params.id}/cover?export=${exportParam}`,
+          mimeType,
         },
       });
+    };
+
+    // The studio uploads every format on each save — the paperback full wrap
+    // (PDF + PNG) and the Kindle front cover (JPG) — whichever tab is open.
+    // Without client files, the paperback PDF is rendered server-side.
+    const pdfBuffer = pdfFile
+      ? Buffer.from(await pdfFile.arrayBuffer())
+      : await generateCoverPdf({ ...config, format: "paperback" });
+    await storeArtifact("cover_pdf", "cover_print_ready.pdf", pdfBuffer, "application/pdf", "pdf");
+    if (pngFile) {
+      await storeArtifact("cover_png", "cover_print_ready.png", Buffer.from(await pngFile.arrayBuffer()), "image/png", "png");
+    }
+    if (ebookFile) {
+      await storeArtifact(EBOOK_COVER_ARTIFACT, "cover_kindle.jpg", Buffer.from(await ebookFile.arrayBuffer()), "image/jpeg", "jpg");
     }
 
-    // A new cover means any cached EPUB is stale — the EPUB embeds cover_png.
+    // A new cover means any cached EPUB is stale — the EPUB embeds the
+    // Kindle front cover.
     await prisma.renderArtifact.deleteMany({
       where: { jobId: params.id, artifactType: "epub" },
     });

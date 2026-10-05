@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { getFromStorage, uploadToStorage } from "@/lib/storage/s3";
 import { GENERIC_INTERNAL_ERROR, logServerError, requireIdentity, requireJobOwner } from "@/lib/auth-utils";
-import { generateEpub } from "@/lib/epub/generator";
+import { buildEpub } from "@/lib/epub/generator";
+import { validateEpub } from "@/lib/epub/validate";
+import { EBOOK_COVER_ARTIFACT } from "@/lib/cover/generator";
+
+const EPUB_GENERATOR_VERSION = 2;
 import type { BookStructureV1 } from "@/lib/manuscript/types";
 
 export async function GET(
@@ -46,13 +50,14 @@ export async function GET(
       );
     }
 
-    // Check if an EPUB artifact already exists
+    // Reuse a cached EPUB only if the current generator version built it —
+    // older files predate inline formatting, footnotes and packaged images.
+    const s3Key = `artifacts/${params.id}/ebook-v${EPUB_GENERATOR_VERSION}.epub`;
     const epubArtifact = (job.artifacts as any[])?.find(
-      (a: any) => a.artifactType === "epub"
+      (a: any) => a.artifactType === "epub" && a.s3Key === s3Key
     );
 
     let epubBuffer: Buffer | null = null;
-    const s3Key = epubArtifact?.s3Key || `artifacts/${params.id}/ebook.epub`;
     const s3Bucket = epubArtifact?.s3Bucket || "artifacts";
 
     if (epubArtifact) {
@@ -73,35 +78,57 @@ export async function GET(
         );
       }
 
-      // Check if a cover image artifact exists to embed
+      // Embed only the eBook front cover — never the paperback wraparound.
       let coverBuffer: Buffer | undefined;
       let coverMime: string | undefined;
       const coverArtifact = (job.artifacts as any[])?.find(
-        (a: any) => a.artifactType === "cover_png" || a.artifactType === "cover_jpg"
+        (a: any) => a.artifactType === EBOOK_COVER_ARTIFACT
       );
       if (coverArtifact) {
         try {
           coverBuffer = await getFromStorage(coverArtifact.s3Key, coverArtifact.s3Bucket || "artifacts");
-          coverMime = coverArtifact.mimeType || "image/png";
+          coverMime = coverArtifact.mimeType || "image/jpeg";
         } catch {}
       }
 
-      const bookTitle = job.structureJson?.detectedTitle ||
+      // Title/author the author confirmed in Cover Studio win over detection.
+      let coverConfig: { title?: string; author?: string; subtitle?: string } = {};
+      try {
+        const cfg = await getFromStorage(`artifacts/${params.id}/cover_config.json`, "artifacts");
+        coverConfig = JSON.parse(cfg.toString("utf8"));
+      } catch {}
+
+      const bookTitle = coverConfig.title?.trim() ||
+        job.structureJson?.detectedTitle ||
+        structure.title ||
         job.manuscriptAsset?.fileName?.replace(/\.[^/.]+$/, "") ||
         "Untitled Book";
-      const bookAuthor = job.structureJson?.detectedAuthor || "Author";
+      const bookAuthor = coverConfig.author?.trim() || job.structureJson?.detectedAuthor || structure.author || "";
 
-      epubBuffer = await generateEpub({
+      const { buffer, warnings } = await buildEpub({
         title: bookTitle,
         author: bookAuthor,
-        structure,
+        identifier: `urn:uuid:${params.id}`,
+        structure: coverConfig.subtitle ? { ...structure, subtitle: coverConfig.subtitle } : structure,
         coverImageBuffer: coverBuffer,
         coverMimeType: coverMime,
       });
+      if (warnings.length) console.warn(`[EPUB] ${params.id}:`, warnings.join(" | "));
+
+      const issues = await validateEpub(buffer);
+      if (issues.length) {
+        logServerError("Jobs EPUB API validation", new Error(issues.map((i) => `${i.file}: ${i.message}`).join("; ")));
+        return NextResponse.json(
+          { error: "We couldn't produce a valid EPUB for this manuscript. Our team has been notified." },
+          { status: 500 }
+        );
+      }
+      epubBuffer = buffer;
 
       // Persist artifact
       try {
         await uploadToStorage(s3Key, epubBuffer, "application/epub+zip", "artifacts");
+        await prisma.renderArtifact.deleteMany({ where: { jobId: params.id, artifactType: "epub" } });
         await prisma.renderArtifact.create({
           data: {
             jobId: params.id,

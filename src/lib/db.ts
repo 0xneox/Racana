@@ -51,6 +51,16 @@ class InMemoryStore {
       this._users.clear();
       return { count };
     },
+    delete: async ({ where }: any) => {
+      const existing = this._users.get(where.id);
+      if (!existing) throw new Error("User not found");
+      this._users.delete(where.id);
+      // Sessions cascade with the user (schema onDelete: Cascade).
+      for (const [k, v] of Array.from(this._sessions.entries())) {
+        if (v.userId === where.id) this._sessions.delete(k);
+      }
+      return existing;
+    },
   };
 
   // BookJob
@@ -188,6 +198,9 @@ class InMemoryStore {
       if (include?.qaReports) {
         copy.qaReports = Array.from(this._qaReports.values()).filter((q) => q.jobId === job.id);
       }
+      if (include?.artifacts) {
+        copy.artifacts = Array.from(this._renderArtifacts.values()).filter((a) => a.jobId === job.id);
+      }
       return copy;
     },
     updateMany: async ({ where, data }: any) => {
@@ -207,10 +220,36 @@ class InMemoryStore {
       }
       return { count };
     },
-    deleteMany: async () => {
+    deleteMany: async (args?: any) => {
       const count = this._bookJobs.size;
       this._bookJobs.clear();
       return { count };
+    },
+    delete: async ({ where }: any) => {
+      const job = this._bookJobs.get(where.id);
+      if (!job) throw new Error(`BookJob ${where.id} not found`);
+      this._bookJobs.delete(where.id);
+      // Cascade like the schema does (onDelete: Cascade on every child row).
+      const dropWhere = (map: Map<string, any>) => {
+        for (const [k, v] of Array.from(map.entries())) {
+          if (v.jobId === where.id) map.delete(k);
+        }
+      };
+      dropWhere(this._manuscriptAssets);
+      dropWhere(this._bookStructureJSONs);
+      dropWhere(this._templateChoices);
+      dropWhere(this._bookSettings);
+      dropWhere(this._renderArtifacts);
+      dropWhere(this._qaReports);
+      // Payments and email logs keep an audit trail via onDelete: SetNull.
+      const nullify = (map: Map<string, any>) => {
+        for (const [k, v] of Array.from(map.entries())) {
+          if (v.jobId === where.id) map.set(k, { ...v, jobId: null });
+        }
+      };
+      nullify(this._payments);
+      nullify(this._emailLogs);
+      return job;
     },
   };
 
@@ -222,7 +261,32 @@ class InMemoryStore {
       this._manuscriptAssets.set(id, record);
       return record;
     },
-    deleteMany: async () => {
+    findMany: async (args?: any) => {
+      let rows = Array.from(this._manuscriptAssets.values());
+      const lt = args?.where?.createdAt?.lt;
+      if (lt) rows = rows.filter((r) => new Date(r.createdAt) < new Date(lt));
+      if (args?.where?.deletedAt === null) rows = rows.filter((r) => r.deletedAt == null);
+      if (args?.where?.jobId) rows = rows.filter((r) => r.jobId === args.where.jobId);
+      return rows;
+    },
+    update: async ({ where, data }: any) => {
+      const existing = where.id
+        ? this._manuscriptAssets.get(where.id)
+        : Array.from(this._manuscriptAssets.values()).find((m) => m.jobId === where.jobId);
+      if (!existing) throw new Error("ManuscriptAsset not found");
+      const updated = { ...existing, ...data, updatedAt: new Date() };
+      this._manuscriptAssets.set(existing.id, updated);
+      return updated;
+    },
+    deleteMany: async (args?: any) => {
+      const jobId = args?.where?.jobId;
+      if (jobId) {
+        let count = 0;
+        for (const [k, v] of Array.from(this._manuscriptAssets.entries())) {
+          if (v.jobId === jobId) { this._manuscriptAssets.delete(k); count++; }
+        }
+        return { count };
+      }
       this._manuscriptAssets.clear();
       return { count: 0 };
     },
@@ -255,9 +319,17 @@ class InMemoryStore {
       this._bookStructureJSONs.set(existing.id, updated);
       return updated;
     },
-    deleteMany: async () => {
-      this._bookStructureJSONs.clear();
-      return { count: 0 };
+    deleteMany: async (args?: any) => {
+      const w = args?.where || {};
+      let count = 0;
+      for (const [k, v] of Array.from(this._bookStructureJSONs.entries())) {
+        const ok =
+          (w.jobId === undefined || v.jobId === w.jobId) &&
+          (w.artifactType === undefined || v.artifactType === w.artifactType) &&
+          (w.id === undefined || v.id === w.id);
+        if (ok) { this._bookStructureJSONs.delete(k); count++; }
+      }
+      return { count };
     },
   };
 
@@ -288,9 +360,17 @@ class InMemoryStore {
     findUnique: async ({ where }: any) => {
       return Array.from(this._templateChoices.values()).find((t) => t.jobId === where.jobId) || null;
     },
-    deleteMany: async () => {
-      this._templateChoices.clear();
-      return { count: 0 };
+    deleteMany: async (args?: any) => {
+      const w = args?.where || {};
+      let count = 0;
+      for (const [k, v] of Array.from(this._templateChoices.entries())) {
+        const ok =
+          (w.jobId === undefined || v.jobId === w.jobId) &&
+          (w.artifactType === undefined || v.artifactType === w.artifactType) &&
+          (w.id === undefined || v.id === w.id);
+        if (ok) { this._templateChoices.delete(k); count++; }
+      }
+      return { count };
     },
   };
 
@@ -337,9 +417,17 @@ class InMemoryStore {
       this._bookSettings.set(existing.id, updated);
       return updated;
     },
-    deleteMany: async () => {
-      this._bookSettings.clear();
-      return { count: 0 };
+    deleteMany: async (args?: any) => {
+      const w = args?.where || {};
+      let count = 0;
+      for (const [k, v] of Array.from(this._bookSettings.entries())) {
+        const ok =
+          (w.jobId === undefined || v.jobId === w.jobId) &&
+          (w.artifactType === undefined || v.artifactType === w.artifactType) &&
+          (w.id === undefined || v.id === w.id);
+        if (ok) { this._bookSettings.delete(k); count++; }
+      }
+      return { count };
     },
   };
 
@@ -351,6 +439,13 @@ class InMemoryStore {
       this._renderArtifacts.set(id, record);
       return record;
     },
+    findMany: async (args?: any) => {
+      let rows = Array.from(this._renderArtifacts.values());
+      const w = args?.where || {};
+      if (w.jobId !== undefined) rows = rows.filter((r) => r.jobId === w.jobId);
+      if (w.artifactType !== undefined) rows = rows.filter((r) => r.artifactType === w.artifactType);
+      return rows;
+    },
     findFirst: async ({ where }: any) => {
       return (
         Array.from(this._renderArtifacts.values()).find((a) =>
@@ -358,9 +453,17 @@ class InMemoryStore {
         ) || null
       );
     },
-    deleteMany: async () => {
-      this._renderArtifacts.clear();
-      return { count: 0 };
+    deleteMany: async (args?: any) => {
+      const w = args?.where || {};
+      let count = 0;
+      for (const [k, v] of Array.from(this._renderArtifacts.entries())) {
+        const ok =
+          (w.jobId === undefined || v.jobId === w.jobId) &&
+          (w.artifactType === undefined || v.artifactType === w.artifactType) &&
+          (w.id === undefined || v.id === w.id);
+        if (ok) { this._renderArtifacts.delete(k); count++; }
+      }
+      return { count };
     },
   };
 
@@ -387,9 +490,17 @@ class InMemoryStore {
       this._qaReports.set(id, record);
       return record;
     },
-    deleteMany: async () => {
-      this._qaReports.clear();
-      return { count: 0 };
+    deleteMany: async (args?: any) => {
+      const w = args?.where || {};
+      let count = 0;
+      for (const [k, v] of Array.from(this._qaReports.entries())) {
+        const ok =
+          (w.jobId === undefined || v.jobId === w.jobId) &&
+          (w.artifactType === undefined || v.artifactType === w.artifactType) &&
+          (w.id === undefined || v.id === w.id);
+        if (ok) { this._qaReports.delete(k); count++; }
+      }
+      return { count };
     },
   };
 
@@ -510,9 +621,17 @@ class InMemoryStore {
     findUnique: async ({ where }: any) => {
       return this._emailLogs.get(where.id) || null;
     },
-    deleteMany: async () => {
-      this._emailLogs.clear();
-      return { count: 0 };
+    deleteMany: async (args?: any) => {
+      const w = args?.where || {};
+      let count = 0;
+      for (const [k, v] of Array.from(this._emailLogs.entries())) {
+        const ok =
+          (w.jobId === undefined || v.jobId === w.jobId) &&
+          (w.artifactType === undefined || v.artifactType === w.artifactType) &&
+          (w.id === undefined || v.id === w.id);
+        if (ok) { this._emailLogs.delete(k); count++; }
+      }
+      return { count };
     },
   };
 

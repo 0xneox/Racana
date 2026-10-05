@@ -73,11 +73,11 @@ const faqs: [string, string][] = [
   ],
   [
     "Does Racana design my cover too?",
-    "No. Racana formats the interior pages only. Covers are a separate file with their own specifications — use a cover tool or your printer's template for that.",
+    "Yes. Cover Studio is included with every paid book — it designs a print-ready paperback wrap with the spine width calculated from your page count, plus a Kindle eBook cover. You can design it yourself or start from a suggested preset.",
   ],
   [
     "How much does it cost?",
-    "Previewing your typeset interior is free. When you're happy with it, the finished print-ready PDF is $29 — one book, one payment, no subscription.",
+    "Previewing your typeset interior is free. When you're happy with it, the finished print-ready PDF — plus cover and EPUB — is ₹2,450 (about $29): one book, one payment, no subscription.",
   ],
 ];
 
@@ -124,7 +124,7 @@ export default function BookFormattingPage() {
           <div className="mt-9 flex flex-col items-start gap-5 sm:flex-row sm:items-center">
             <PrimaryCta>Format your manuscript</PrimaryCta>
             <p className="text-[11px] leading-6 text-muted-foreground">
-              Free preview · $29 per finished interior · No subscription
+              Free preview · ₹2,450 (≈ $29) per finished book · No subscription
             </p>
           </div>
         </div>
@@ -253,7 +253,8 @@ export default function BookFormattingPage() {
             </li>
             <li className="flex gap-3">
               <Check className="mt-1 size-4 shrink-0 text-forest" />
-              Racana produces the interior pages only. Cover files are separate.
+              Racana produces the interior plus a paperback wrap and Kindle cover in Cover Studio —
+              bespoke dust-jacket illustration remains a designer's craft.
             </li>
             <li className="flex gap-3">
               <Check className="mt-1 size-4 shrink-0 text-forest" />
@@ -294,7 +295,7 @@ export default function BookFormattingPage() {
             <PrimaryCta>Start your book</PrimaryCta>
           </div>
           <p className="mt-5 text-xs text-muted-foreground">
-            Free preview · $29 (≈ ₹2,450) when you're ready
+            Free preview · ₹2,450 (≈ $29) when you're ready
           </p>
         </div>
       </section>

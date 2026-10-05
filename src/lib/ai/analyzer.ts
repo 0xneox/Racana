@@ -1512,6 +1512,22 @@ export async function analyzeManuscript(
   };
 
   structure.warnings = generateWarnings(blocks, chapters, estimatedPages);
+
+  // Embedded print fonts cover Latin plus Devanagari, Tamil and Malayalam.
+  // Any other Indic script falls back to a substitute face in the PDF — fine
+  // for previewing, wrong for print. Warn rather than let it ship silently.
+  const EMBEDDED_INDIC = new Set(["devanagari", "tamil", "malayalam"]);
+  if (scriptInfo.isIndic && !EMBEDDED_INDIC.has(scriptInfo.script)) {
+    structure.warnings.push({
+      code: "unsupported_script",
+      level: "warning",
+      message:
+        `${scriptInfo.label} is not yet supported for print — embedded fonts cover Devanagari (Hindi), ` +
+        `Tamil and Malayalam. Your interior will render with a fallback font; please check the preview ` +
+        `carefully or email books@racana.pro to request support.`,
+    });
+  }
+
   // Surface every mechanical repair the parser logged so the author can audit
   // exactly what was touched.
   for (const fix of parseFixes) {

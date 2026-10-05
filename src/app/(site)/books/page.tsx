@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BookOpen, Loader2, AlertTriangle, CheckCircle2, Clock, ArrowRight, Download, Palette, Book } from "lucide-react";
+import { BookOpen, Loader2, AlertTriangle, CheckCircle2, Clock, ArrowRight, Download, Palette, Book, Trash2, Lock, UserX } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 interface JobRow {
@@ -13,6 +13,7 @@ interface JobRow {
   createdAt: string;
   manuscriptAsset?: { fileName: string; pageCountEstimate: number | null } | null;
   templateChoice?: { name: string; personality: string } | null;
+  payments?: { status: string }[];
 }
 
 function statusLabel(
@@ -54,6 +55,9 @@ export default function BooksPage() {
   const router = useRouter();
   const [jobs, setJobs] = useState<JobRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [user, setUser] = useState<{ email: string; name?: string } | null>(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   useEffect(() => {
     fetch("/api/jobs")
@@ -63,8 +67,43 @@ export default function BooksPage() {
         setJobs(data.jobs || []);
       })
       .catch((e) => setError(e.message));
+    fetch("/api/auth/session")
+      .then((res) => res.json())
+      .then((data) => { if (data?.user) setUser(data.user); })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleDeleteJob = async (job: JobRow) => {
+    const title =
+      job.manuscriptAsset?.fileName?.replace(/\.[^/.]+$/, "") || t("untitled");
+    if (!window.confirm(t("deleteConfirm", { title }))) return;
+    setDeletingId(job.id);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || t("deleteFailed"));
+      setJobs((prev) => (prev ? prev.filter((j) => j.id !== job.id) : prev));
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!window.confirm(t("deleteAccountConfirm"))) return;
+    setDeletingAccount(true);
+    try {
+      const res = await fetch("/api/account", { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || t("deleteFailed"));
+      window.location.href = "/";
+    } catch (e) {
+      alert((e as Error).message);
+      setDeletingAccount(false);
+    }
+  };
 
   return (
     <div className="py-10 px-4 sm:px-6 max-w-4xl mx-auto">
@@ -157,17 +196,41 @@ export default function BooksPage() {
                         <Palette className="w-3 h-3 text-[#A34825]" />
                         <span>Cover</span>
                       </Link>
-                      <a
-                        href={`/api/jobs/${job.id}/epub`}
-                        download
-                        className="px-2.5 py-1 rounded-lg border border-[#D6CEBE] bg-[#F8F5EE] text-[11px] font-semibold text-[#1C1917] hover:border-[#1C1917] flex items-center gap-1 transition-all"
-                        title="Download eBook (EPUB)"
-                      >
-                        <Book className="w-3 h-3 text-emerald-700" />
-                        <span>ePub</span>
-                      </a>
+                      {job.payments?.some((p) => p.status === "paid") ? (
+                        <a
+                          href={`/api/jobs/${job.id}/epub`}
+                          download
+                          className="px-2.5 py-1 rounded-lg border border-[#D6CEBE] bg-[#F8F5EE] text-[11px] font-semibold text-[#1C1917] hover:border-[#1C1917] flex items-center gap-1 transition-all"
+                          title="Download eBook (EPUB)"
+                        >
+                          <Book className="w-3 h-3 text-emerald-700" />
+                          <span>ePub</span>
+                        </a>
+                      ) : (
+                        <span
+                          className="px-2.5 py-1 rounded-lg border border-[#E8E2D5] bg-[#F8F5EE] text-[11px] font-semibold text-[#A8A29E] flex items-center gap-1 cursor-not-allowed"
+                          title={t("includedWithPurchase")}
+                        >
+                          <Lock className="w-3 h-3" />
+                          <span>ePub</span>
+                        </span>
+                      )}
                     </div>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteJob(job)}
+                    disabled={deletingId === job.id}
+                    title={t("delete")}
+                    className="p-1.5 rounded-lg text-[#A8A29E] hover:text-[#991B1B] hover:bg-[#FEF2F2] transition-all disabled:opacity-50"
+                  >
+                    {deletingId === job.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                  </button>
 
                   <button
                     onClick={() => router.push(destinationFor(job))}
@@ -185,6 +248,53 @@ export default function BooksPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {user && jobs !== null && (
+        <div className="mt-10 max-w-xl mx-auto space-y-4">
+          {/* Account card — the only place account-level actions live */}
+          <div className="rounded-xl border border-[#E2DDD2] bg-white p-5 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="text-xs font-semibold text-[#1C1917] uppercase tracking-wider">
+                {t("accountTitle")}
+              </h3>
+              <p className="text-[11px] text-[#78716C] mt-1 truncate">
+                {t("signedInAs", { email: user.email })}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                await fetch("/api/auth/signout", { method: "POST" });
+                window.location.href = "/";
+              }}
+              className="shrink-0 px-3.5 py-2 rounded-lg border border-[#D6CEBE] bg-[#F8F5EE] text-[11px] font-semibold text-[#1C1917] hover:border-[#1C1917] transition-all"
+            >
+              {t("signOut")}
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] p-5">
+            <div className="flex items-start gap-3">
+              <UserX className="w-4 h-4 text-[#991B1B] shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-xs font-semibold text-[#991B1B]">{t("dangerZoneTitle")}</h3>
+                <p className="text-[11px] text-[#B91C1C]/80 mt-1 leading-relaxed">
+                  {t("dangerZoneText")}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleDeleteAccount}
+                  disabled={deletingAccount}
+                  className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-[#FCA5A5] bg-white text-[11px] font-semibold text-[#991B1B] hover:bg-[#FEF2F2] transition-all disabled:opacity-60"
+                >
+                  {deletingAccount && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {t("deleteAccount")}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

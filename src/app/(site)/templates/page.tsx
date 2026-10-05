@@ -71,6 +71,10 @@ function TemplatesContent() {
   const [bookTitle, setBookTitle] = useState("");
   const [bookAuthor, setBookAuthor] = useState("");
   const [metaTouched, setMetaTouched] = useState(false);
+  // Titles freeze once the job enters the render pipeline — the structure
+  // PATCH 409s from then on, so we show the editor as read-only instead.
+  const [structureLocked, setStructureLocked] = useState(false);
+  const [structureError, setStructureError] = useState<string | null>(null);
 
   useEffect(() => {
     if (jobId) {
@@ -93,6 +97,7 @@ function TemplatesContent() {
           if (res.ok) {
             const json = await res.json();
             if (json?.summary) {
+              if (json.editable === false) setStructureLocked(true);
               setAnalysisSummary({
                 chapterCount: Number(json.summary.chapterCount) || 0,
                 sectionCount: Number(json.summary.sectionCount) || 0,
@@ -170,6 +175,7 @@ function TemplatesContent() {
         body: JSON.stringify(structurePayload()),
       });
       if (res.ok) {
+        setStructureError(null);
         setStructureSaved(true);
         setAnalysisSummary((prev) =>
           prev
@@ -182,8 +188,13 @@ function TemplatesContent() {
             : prev
         );
         setChapterEdits({});
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setStructureError(data.error || t("structureSaveFailed"));
       }
-    } catch {}
+    } catch {
+      setStructureError(t("structureSaveFailed"));
+    }
   };
 
   const handleContinue = async () => {
@@ -247,6 +258,11 @@ function TemplatesContent() {
                     strong: (chunks) => <strong>{chunks}</strong>,
                   })}
                 </p>
+                {structureLocked && (
+                  <p className="mt-3 text-[11px] font-medium text-[#92400E] bg-[#FFFBEB] border border-[#FCD34D] rounded-lg px-3 py-2">
+                    {t("titlesFrozen")}
+                  </p>
+                )}
                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label className="block">
                     <span className="block text-[11px] font-semibold text-[#57534E] mb-1">{t("bookTitleLabel")}</span>
@@ -254,8 +270,9 @@ function TemplatesContent() {
                       type="text"
                       value={bookTitle}
                       maxLength={200}
+                      disabled={structureLocked}
                       onChange={(e) => { setMetaTouched(true); setBookTitle(e.target.value); }}
-                      className="w-full px-3 py-2 rounded-lg border border-[#E8E2D5] text-sm text-[#1C1917] focus:outline-none focus:border-[#1C1917] bg-[#FDFBF7]"
+                      className="w-full px-3 py-2 rounded-lg border border-[#E8E2D5] text-sm text-[#1C1917] focus:outline-none focus:border-[#1C1917] bg-[#FDFBF7] disabled:opacity-60 disabled:cursor-not-allowed"
                     />
                   </label>
                   <label className="block">
@@ -265,8 +282,9 @@ function TemplatesContent() {
                       value={bookAuthor}
                       maxLength={120}
                       placeholder={t("authorPlaceholder")}
+                      disabled={structureLocked}
                       onChange={(e) => { setMetaTouched(true); setBookAuthor(e.target.value); }}
-                      className="w-full px-3 py-2 rounded-lg border border-[#E8E2D5] text-sm text-[#1C1917] focus:outline-none focus:border-[#1C1917] bg-[#FDFBF7]"
+                      className="w-full px-3 py-2 rounded-lg border border-[#E8E2D5] text-sm text-[#1C1917] focus:outline-none focus:border-[#1C1917] bg-[#FDFBF7] disabled:opacity-60 disabled:cursor-not-allowed"
                     />
                   </label>
                 </div>
@@ -309,11 +327,12 @@ function TemplatesContent() {
                         <input
                           type="text"
                           defaultValue={ch.title}
+                          disabled={structureLocked}
                           onChange={(e) => {
                             setStructureSaved(false);
                             setChapterEdits((prev) => ({ ...prev, [ch.index]: e.target.value }));
                           }}
-                          className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-[#E8E2D5] text-xs text-[#1C1917] focus:outline-none focus:border-[#1C1917] bg-[#FDFBF7]"
+                          className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-[#E8E2D5] text-xs text-[#1C1917] focus:outline-none focus:border-[#1C1917] bg-[#FDFBF7] disabled:opacity-60 disabled:cursor-not-allowed"
                         />
                         <span className="shrink-0 text-[10px] text-[#A8A29E]">
                           {ch.wordCount > 0 ? t("kWords", { count: (ch.wordCount / 1000).toFixed(1) }) : ""}
@@ -331,7 +350,10 @@ function TemplatesContent() {
                       </p>
                     )}
                     <div className="flex items-center gap-3 pt-2">
-                      {Object.keys(chapterEdits).length > 0 && (
+                      {structureError && (
+                        <span className="text-[11px] text-[#991B1B] font-medium">{structureError}</span>
+                      )}
+                      {!structureLocked && Object.keys(chapterEdits).length > 0 && (
                         <button
                           type="button"
                           onClick={handleSaveStructure}

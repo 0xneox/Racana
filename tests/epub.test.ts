@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
 import { generateEpub } from "../src/lib/epub/generator";
+import { validateEpub } from "../src/lib/epub/validate";
 import type { BookStructureV1 } from "../src/lib/manuscript/types";
 
 describe("EPUB 3 Generator", () => {
@@ -98,7 +99,7 @@ describe("EPUB 3 Generator", () => {
     expect(opf).toBeDefined();
     const opfText = await opf!.async("text");
     expect(opfText).toContain("<dc:title>Echoes of the Ganges</dc:title>");
-    expect(opfText).toContain("<dc:creator>Aarav Sharma</dc:creator>");
+    expect(opfText).toMatch(/<dc:creator[^>]*>Aarav Sharma<\/dc:creator>/);
     expect(opfText).toContain("titlepage.xhtml");
     expect(opfText).toContain("chapter_1.xhtml");
     expect(opfText).toContain("chapter_2.xhtml");
@@ -107,7 +108,7 @@ describe("EPUB 3 Generator", () => {
     const nav = zip.file("OEBPS/nav.xhtml");
     expect(nav).toBeDefined();
     const navText = await nav!.async("text");
-    expect(navText).toContain("Table of Contents");
+    expect(navText).toContain("Contents");
     expect(navText).toContain("The Holy Confluence");
     expect(navText).toContain("The Flame of Eternity");
 
@@ -124,7 +125,10 @@ describe("EPUB 3 Generator", () => {
     const chap1Text = await chap1!.async("text");
     expect(chap1Text).toContain("The Holy Confluence");
     expect(chap1Text).toContain("Morning Mist");
-    expect(chap1Text).toContain("At dawn, the bells of Varanasi echoed across the water.");
+    // Chapter opener: first words in a small-caps lead-in span.
+    expect(chap1Text.replace(/<\/?span[^>]*>/g, "")).toContain("At dawn, the bells of Varanasi echoed across the water.");
+    expect(chap1Text).toContain('<p class="first-p"><span class="lead-in">At dawn,');
+    expect(await validateEpub(epubBuffer)).toEqual([]);
     expect(chap1Text).toContain("Reflective Contemplation");
 
     // Verify styles.css
@@ -148,11 +152,12 @@ describe("EPUB 3 Generator", () => {
     });
 
     const zip = await JSZip.loadAsync(epubBuffer);
-    expect(zip.file("OEBPS/images/cover.png")).toBeDefined();
-    expect(zip.file("OEBPS/cover.xhtml")).toBeDefined();
+    expect(zip.file("OEBPS/images/cover.png")).not.toBeNull();
+    // No HTML cover page: KDP adds the marketing cover itself.
+    expect(zip.file("OEBPS/cover.xhtml")).toBeNull();
 
     const opfText = await zip.file("OEBPS/content.opf")!.async("text");
     expect(opfText).toContain('properties="cover-image"');
-    expect(opfText).toContain('id="cover-page"');
+    expect(opfText).toContain('<meta name="cover" content="cover-image"/>');
   });
 });

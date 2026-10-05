@@ -17,6 +17,10 @@ export function hasKnownImageMagic(buffer: Buffer): boolean {
   return IMAGE_MAGIC.some((m) => m.test(buffer));
 }
 
+export function imageFormat(buffer: Buffer): string | null {
+  return IMAGE_MAGIC.find((m) => m.test(buffer))?.name ?? null;
+}
+
 export function verifyEmbeddedImages(
   images: EmbeddedImage[],
   declaredImageBlocks: number

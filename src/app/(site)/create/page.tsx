@@ -46,22 +46,10 @@ function CreateContent() {
 
   useEffect(() => {
     if (!jobId) {
-      // If no jobId provided, run local preview simulation
-      const interval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval);
-            setTimeout(() => router.push("/ready"), 800);
-            return 100;
-          }
-          const next = prev + 12;
-          const stepIndex = stepIndexFor(next);
-          setActiveStep(stepIndex);
-          setCompletedSteps(CHECKLIST_ITEMS.filter((i) => i.id < stepIndex).map((i) => i.id));
-          return next;
-        });
-      }, 600);
-      return () => clearInterval(interval);
+      // Nothing to render without a job — send the author to upload instead
+      // of running a fake checklist.
+      router.replace("/upload");
+      return;
     }
 
     // Fetch the book title once (the full job endpoint) so we don't pull

@@ -4,6 +4,7 @@ import { redisConnection } from "./queue";
 import prisma from "../db";
 import { JobStatus, BookType } from "@prisma/client";
 import { getFromStorage, uploadToStorage } from "../storage/s3";
+import { startRetentionSweepTimer } from "../retention";
 import { analyzeManuscript } from "../ai/analyzer";
 import { resolveAppRoot } from "../app-root";
 import type { BookStructureV1, Block } from "../manuscript/types";
@@ -101,6 +102,15 @@ export async function runAnalysisForJob(jobId: string): Promise<boolean> {
       structureData: structure as any,
     },
   });
+
+  // The analyzer's book type is the single source of truth — sync it back
+  // onto the job so anything reading job.bookType (cover presets, queue
+  // payloads) reflects the manuscript, not a stale default.
+  if (bookTypeEnum) {
+    await prisma.bookJob
+      .update({ where: { id: jobId }, data: { bookType: bookTypeEnum } })
+      .catch(() => {});
+  }
 
   return true;
 }
@@ -478,6 +488,8 @@ export function startEmbeddedWorker(): Worker | null {
     );
     console.log(`[Worker] Book-processing consumer started (queue: book-processing)`);
     logEvent("worker_started", { concurrency: 2 });
+    // 30-day manuscript retention sweep — daily, first run a minute after boot.
+    startRetentionSweepTimer();
   } catch (err) {
     console.warn("[BullMQ] Worker initialization deferred:", (err as Error).message);
   }

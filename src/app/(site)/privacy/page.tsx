@@ -29,16 +29,31 @@ export default function PrivacyPage() {
           <h2 className="font-serif font-bold text-lg text-[#1C1917] mb-2">Storage & retention</h2>
           <p>
             Manuscripts and generated book interiors are stored on encrypted S3-compatible storage.
-            Raw manuscripts are retained for 30 days by default so you can re-download and iterate,
-            then deleted. You may request earlier deletion at any time by emailing
-            books@racana.pro.
+            Raw manuscript files are retained for 30 days — the same window in which paid books can be
+            re-generated for free — then automatically deleted. You never have to wait for that: delete
+            any book yourself from My Books, or delete your account entirely, and your manuscript files
+            and generated artifacts are removed immediately. You may also request deletion at any time
+            by emailing books@racana.pro.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="font-serif font-bold text-lg text-[#1C1917] mb-2">Third-party processing</h2>
+          <p>
+            When AI-assisted structure detection is enabled on our servers, a short opening excerpt of
+            your manuscript (up to about 8,000 characters — a few pages, never the whole book) is sent
+            to a third-party language-model endpoint to help detect your title, author name, and chapter
+            boundaries. This is processing on our behalf to build your book — the excerpt is not used to
+            train models and is not retained by us beyond the analysis. If the feature is disabled or the
+            provider is unreachable, your book is typeset entirely on our own systems. To opt out for
+            your account, email books@racana.pro.
           </p>
         </section>
 
         <section>
           <h2 className="font-serif font-bold text-lg text-[#1C1917] mb-2">What we never do</h2>
           <ul className="list-disc pl-5 space-y-1.5 text-[#57534E]">
-            <li>We never sell or share your data with third parties.</li>
+            <li>We never sell your data.</li>
             <li>We never modify your manuscript content — formatting only.</li>
             <li>We never use your work to train models.</li>
           </ul>

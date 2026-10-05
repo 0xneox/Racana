@@ -20,6 +20,7 @@ async function getSharedJob(token: string) {
       structureJson: true,
       templateChoice: true,
       qaReports: { orderBy: { createdAt: "desc" }, take: 1 },
+      artifacts: { where: { artifactType: "preview_png" }, select: { id: true } },
     },
   });
 }
@@ -33,11 +34,12 @@ export async function generateMetadata({ params }: ShareParams): Promise<Metadat
     job.manuscriptAsset?.fileName?.replace(/\.[^/.]+$/, "") ||
     t("finishedBook");
   const description = t("metaDesc", { title });
+  const ogImage = `${getAppUrl()}/api/s/${params.token}/preview/1`;
   return {
     title: t("metaTitle", { title }),
     description,
-    openGraph: { title, description, type: "website" },
-    twitter: { card: "summary_large_image", title, description },
+    openGraph: { title, description, type: "website", images: [ogImage] },
+    twitter: { card: "summary_large_image", title, description, images: [ogImage] },
   };
 }
 
@@ -66,6 +68,10 @@ export default async function SharePage({ params }: ShareParams) {
   const templateName = job.templateChoice?.name || "Classic";
   const pages = job.qaReports?.[0]?.pageCount || job.manuscriptAsset?.pageCountEstimate || null;
   const appUrl = getAppUrl();
+  // Real rendered pages beat a generic card — preview PNGs exist for every
+  // book rendered by the current pipeline. Older links without previews
+  // fall back to the title card.
+  const previewCount = Math.min((job as any).artifacts?.length || 0, 3);
 
   return (
     <main className="flex min-h-screen flex-col bg-[#FDFBF7]">
@@ -89,7 +95,23 @@ export default async function SharePage({ params }: ShareParams) {
           {t("badge")}
         </p>
 
-        {/* The book card */}
+        {/* The actual rendered pages, when previews exist */}
+        {previewCount > 0 ? (
+          <div className="flex items-end justify-center gap-4 sm:gap-6">
+            {Array.from({ length: previewCount }, (_, i) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={i}
+                src={`/api/s/${params.token}/preview/${i + 1}`}
+                alt={`${title} — page ${i + 1}`}
+                className={`rounded-lg border border-[#E8E2D5] bg-white shadow-2xl ${
+                  i === 1 ? "w-40 sm:w-56" : "w-32 sm:w-44 hidden sm:block"
+                } ${i === 0 ? "-rotate-3" : ""} ${i === 2 ? "rotate-3" : ""}`}
+              />
+            ))}
+          </div>
+        ) : (
+        /* Fallback: generic book card for jobs that predate preview PNGs */
         <div className="w-full max-w-md bg-[#1C1917] p-1 shadow-2xl">
           <div className="flex aspect-[3/4.2] flex-col justify-between bg-[#FDFBF7] p-8 sm:p-10">
             <div className="flex items-center justify-between border-b border-[#D6CEBE] pb-3 text-[8px] uppercase tracking-[0.25em] text-[#A8A29E]">
@@ -113,6 +135,22 @@ export default async function SharePage({ params }: ShareParams) {
             </div>
           </div>
         </div>
+        )}
+
+        {previewCount > 0 && (
+          <div className="mt-8 text-center">
+            <h1 className="font-serif text-2xl font-semibold leading-tight text-[#1C1917] sm:text-3xl">
+              {title}
+            </h1>
+            {author && (
+              <p className="mt-2 font-serif text-sm italic text-[#78716C]">{t("byAuthor", { author })}</p>
+            )}
+            <p className="mt-2 text-[10px] uppercase tracking-[0.25em] text-[#A8A29E]">
+              {t("interiorBy", { name: templateName })}
+              {pages ? ` · ${t("pages", { count: pages })}` : ""}
+            </p>
+          </div>
+        )}
 
         <p className="mt-10 max-w-md text-center text-sm leading-6 text-[#78716C]">
           {t("desc")}

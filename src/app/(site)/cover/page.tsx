@@ -18,19 +18,24 @@ import {
   Eye,
   Sliders,
   Share2,
+  Lock,
 } from "lucide-react";
 import {
   COVER_PRESETS,
+  KDP_SPINE_TEXT_MIN_PAGES,
+  coverGeometry,
   generateCoverSvg,
   spineWidthInches,
   type CoverDesignConfig,
+  type CoverPaper,
+  type CoverTrim,
   type CoverPreset,
   type CoverOrnament,
   type CoverFont,
   type CoverFormat,
   type CoverLayout,
 } from "@/lib/cover/generator";
-import { coverPdfBlob, coverPngBlob, downloadBlob, coverFilename } from "@/lib/cover/export";
+import { coverPdfBlob, coverPngBlob, ebookCoverJpgBlob, downloadBlob, coverFilename } from "@/lib/cover/export";
 
 function CoverStudioContent() {
   const searchParams = useSearchParams();
@@ -44,6 +49,8 @@ function CoverStudioContent() {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadingPng, setDownloadingPng] = useState(false);
+  const [isPaid, setIsPaid] = useState(false);
+  const [hasJobConfig, setHasJobConfig] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [showGuides, setShowGuides] = useState(true);
 
@@ -67,7 +74,11 @@ function CoverStudioContent() {
     layoutStyle: COVER_PRESETS[0].layoutStyle,
     format: "ebook",
     pageCount: 180,
+    trimSize: "6x9",
+    paper: "cream",
   }));
+  // Trim and page count come from the typeset interior when there is one.
+  const [interiorLocked, setInteriorLocked] = useState({ trim: false, pages: false });
 
   // Fetch job details to auto-populate from manuscript
   useEffect(() => {
@@ -79,11 +90,14 @@ function CoverStudioContent() {
       .then((res) => res.json())
       .then((data) => {
         if (data?.config) {
+          setHasJobConfig(true);
           setConfig((prev) => ({
             ...prev,
             ...data.config,
             format: prev.format,
           }));
+          setInteriorLocked({ trim: true, pages: !!data.bookInfo?.pageCountFromInterior });
+          if (data?.paid) setIsPaid(true);
         }
       })
       .catch(() => {})
@@ -115,6 +129,7 @@ function CoverStudioContent() {
       return "";
     }
   }, [config, showGuides]);
+  const geometry = useMemo(() => coverGeometry(config), [config]);
 
   // Apply a preset
   const applyPreset = (preset: CoverPreset) => {
@@ -152,23 +167,26 @@ function CoverStudioContent() {
     URL.revokeObjectURL(url);
   };
 
-  // Download Print-Ready PDF — rendered client-side from the same SVG as the
-  // preview, so the download is pixel-identical to what the user sees.
-  const handleDownloadPdf = async () => {
+  const paperback = { ...config, format: "paperback" as const };
+
+  // Primary download: the print-ready full-wrap PDF on the paperback tab,
+  // the Kindle JPG (KDP accepts only JPG/TIFF eBook covers) on the eBook tab.
+  // Rendered client-side from the same SVG as the preview.
+  const handleDownloadPrimary = async () => {
     setDownloadingPdf(true);
     setExportError(null);
     try {
-      const blob = await coverPdfBlob(config);
-      downloadBlob(blob, coverFilename(config, "pdf"));
+      if (format === "paperback") downloadBlob(await coverPdfBlob(paperback), coverFilename(paperback, "pdf"));
+      else downloadBlob(await ebookCoverJpgBlob(config), coverFilename(config, "jpg"));
     } catch (e) {
       console.error(e);
-      setExportError("PDF export failed. Try again or download the SVG instead.");
+      setExportError("Export failed. Try again or download the SVG instead.");
     } finally {
       setDownloadingPdf(false);
     }
   };
 
-  // Download high-res PNG (300 DPI) — KDP accepts PNG/JPG for eBook covers.
+  // High-res PNG (300 DPI) of the current view.
   const handleDownloadPng = async () => {
     setDownloadingPng(true);
     setExportError(null);
@@ -183,8 +201,9 @@ function CoverStudioContent() {
     }
   };
 
-  // Save Cover to Job — persists the design config and uploads the
-  // client-rendered PDF/PNG so stored artifacts match the preview exactly.
+  // Save Cover to Job — persists the design config and uploads every format
+  // (paperback wrap PDF + PNG, Kindle JPG) so stored artifacts always match
+  // the design, whichever tab is open.
   const handleSaveToBook = async () => {
     if (!jobId) return;
     setSaving(true);
@@ -194,8 +213,9 @@ function CoverStudioContent() {
       const form = new FormData();
       form.append("config", JSON.stringify(config));
       try {
-        form.append("pdf", await coverPdfBlob(config), "cover.pdf");
-        form.append("png", await coverPngBlob(config), "cover.png");
+        form.append("pdf", await coverPdfBlob(paperback), "cover.pdf");
+        form.append("png", await coverPngBlob(paperback), "cover.png");
+        form.append("ebook", await ebookCoverJpgBlob(config), "cover_kindle.jpg");
       } catch {
         // Rasterization unavailable (e.g. headless) — config is still saved.
       }
@@ -312,58 +332,87 @@ function CoverStudioContent() {
           {format === "paperback" && (
             <div className="-mt-3 mb-3 text-center space-y-1.5">
               <p className="text-[11px] text-[#78716C]">
-                Spine ≈ {spineWidthInches(config.pageCount || 100).toFixed(3)}″ ·{" "}
-                {config.pageCount || 100} pages · KDP cream paper · 6×9 trim + 0.125″ bleed
+                Spine {spineWidthInches(config.pageCount || 100, config.paper).toFixed(3)}″ ·{" "}
+                {config.pageCount || 100} pages · KDP {config.paper || "cream"} paper ·{" "}
+                {(config.trimSize || "6x9").replace("x", "×")} trim + 0.125″ bleed
               </p>
-              {(config.pageCount || 0) < 100 && (
+              {(config.pageCount || 0) < KDP_SPINE_TEXT_MIN_PAGES && (
                 <p className="text-[11px] font-medium text-[#92400E] bg-[#FFFBEB] border border-[#FCD34D] rounded-lg px-3 py-1.5 inline-block">
-                  KDP doesn&apos;t allow spine text under 100 pages
-                  {(config.pageCount || 0) < 80 ? " — omitted automatically" : ""}.
+                  KDP allows spine text only above 79 pages — omitted automatically.
                 </p>
               )}
             </div>
           )}
 
           {/* Canvas Preview Container */}
-          <div className="w-full flex justify-center items-center py-4">
+          <div className="w-full flex justify-center items-center py-4 relative">
+            {!hasJobConfig && (
+              <span className="absolute top-6 right-2 z-10 px-2.5 py-1 rounded-full bg-[#1C1917]/75 text-[10px] font-semibold uppercase tracking-wider text-[#F8F5EE]">
+                Example content
+              </span>
+            )}
             <div
-              className={`transition-all duration-300 rounded-xl overflow-hidden shadow-2xl border-4 border-[#1C1917]/20 bg-white ${
-                format === "paperback"
-                  ? "w-full max-w-[820px] aspect-[1680/1280]"
-                  : "w-full max-w-[420px] aspect-[800/1280]"
+              className={`transition-all duration-300 rounded-xl overflow-hidden shadow-2xl border-4 border-[#1C1917]/20 bg-white w-full ${
+                format === "paperback" ? "max-w-[820px]" : "max-w-[420px]"
               }`}
+              style={{ aspectRatio: `${geometry.width} / ${geometry.panelH}` }}
               dangerouslySetInnerHTML={{ __html: svgOutput }}
             />
           </div>
 
-          {/* Quick Download Buttons */}
+          {/* Quick Download Buttons — print exports unlock with purchase;
+              the live preview and vector SVG stay free. */}
           <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
-            <button
-              type="button"
-              onClick={handleDownloadPdf}
-              disabled={downloadingPdf}
-              className="px-5 py-2.5 rounded-xl bg-[#A34825] text-white text-xs font-semibold shadow hover:bg-[#8C3C1F] transition-all flex items-center gap-2 disabled:opacity-60"
-            >
-              {downloadingPdf ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Download className="w-4 h-4" />
-              )}
-              <span>Download Print PDF (300 DPI)</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleDownloadPng}
-              disabled={downloadingPng}
-              className="px-5 py-2.5 rounded-xl border border-[#D6CEBE] bg-white text-xs font-semibold text-[#1C1917] hover:border-[#1C1917] shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
-            >
-              {downloadingPng ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Download className="w-4 h-4" />
-              )}
-              <span>PNG for KDP (300 DPI)</span>
-            </button>
+            {isPaid || !jobId ? (
+              <button
+                type="button"
+                onClick={handleDownloadPrimary}
+                disabled={downloadingPdf}
+                className="px-5 py-2.5 rounded-xl bg-[#A34825] text-white text-xs font-semibold shadow hover:bg-[#8C3C1F] transition-all flex items-center gap-2 disabled:opacity-60"
+              >
+                {downloadingPdf ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                <span>
+                  {format === "paperback" ? "KDP Paperback Cover PDF (300 DPI)" : "Kindle Cover JPG (1600×2560)"}
+                </span>
+              </button>
+            ) : (
+              <div
+                aria-disabled="true"
+                className="px-5 py-2.5 rounded-xl bg-[#F4EFEA] text-[#A8A29E] text-xs font-semibold shadow flex items-center gap-2 cursor-not-allowed select-none"
+              >
+                <Lock className="w-4 h-4" />
+                <span>
+                  {format === "paperback" ? "KDP Paperback Cover PDF (300 DPI)" : "Kindle Cover JPG (1600×2560)"}
+                </span>
+              </div>
+            )}
+            {isPaid || !jobId ? (
+              <button
+                type="button"
+                onClick={handleDownloadPng}
+                disabled={downloadingPng}
+                className="px-5 py-2.5 rounded-xl border border-[#D6CEBE] bg-white text-xs font-semibold text-[#1C1917] hover:border-[#1C1917] shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
+              >
+                {downloadingPng ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                <span>High-res PNG (300 DPI)</span>
+              </button>
+            ) : (
+              <div
+                aria-disabled="true"
+                className="px-5 py-2.5 rounded-xl border border-[#E8E2D5] bg-[#F8F5EE] text-xs font-semibold text-[#A8A29E] shadow-sm flex items-center gap-2 cursor-not-allowed select-none"
+              >
+                <Lock className="w-4 h-4" />
+                <span>High-res PNG (300 DPI)</span>
+              </div>
+            )}
             <button
               type="button"
               onClick={handleDownloadSvg}
@@ -373,6 +422,12 @@ function CoverStudioContent() {
               <span>Vector SVG</span>
             </button>
           </div>
+          {!isPaid && jobId && (
+            <p className="mt-3 text-[11px] text-[#A8A29E] text-center flex items-center justify-center gap-1.5">
+              <Lock className="w-3 h-3" />
+              Print-ready cover exports are included with your purchase.
+            </p>
+          )}
           {exportError && (
             <p className="mt-3 text-xs text-[#991B1B] bg-[#FEF2F2] border border-[#FCA5A5] rounded-lg p-2.5 text-center max-w-md">
               {exportError}
@@ -594,12 +649,54 @@ function CoverStudioContent() {
                       min={24}
                       max={828}
                       value={config.pageCount || ""}
+                      disabled={interiorLocked.pages}
                       onChange={(e) =>
                         setConfig({ ...config, pageCount: parseInt(e.target.value, 10) || 0 })
                       }
-                      className="w-full p-2.5 rounded-lg border border-[#D6CEBE] focus:outline-none focus:border-[#1C1917]"
+                      className="w-full p-2.5 rounded-lg border border-[#D6CEBE] focus:outline-none focus:border-[#1C1917] disabled:bg-[#F8F5EE] disabled:text-[#57534E]"
                     />
+                    <p className="mt-1.5 text-[11px] text-[#78716C] leading-snug">
+                      {interiorLocked.pages
+                        ? "Taken from your typeset interior PDF, so the spine matches what KDP prints."
+                        : "Estimate. Generate your interior first and this updates to the real page count."}
+                    </p>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold mb-1 text-[#57534E]">Trim Size</label>
+                      <select
+                        value={config.trimSize || "6x9"}
+                        disabled={interiorLocked.trim}
+                        onChange={(e) => {
+                          const trimSize = e.target.value as CoverTrim;
+                          setConfig({ ...config, trimSize, paper: trimSize === "8.5x11" ? "white" : config.paper });
+                        }}
+                        className="w-full p-2.5 rounded-lg border border-[#D6CEBE] bg-white disabled:bg-[#F8F5EE]"
+                      >
+                        <option value="5x8">5″ × 8″</option>
+                        <option value="5.5x8.5">5.5″ × 8.5″</option>
+                        <option value="6x9">6″ × 9″</option>
+                        <option value="8.5x11">8.5″ × 11″</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-semibold mb-1 text-[#57534E]">Paper (as chosen on KDP)</label>
+                      <select
+                        value={config.paper || "cream"}
+                        onChange={(e) => setConfig({ ...config, paper: e.target.value as CoverPaper })}
+                        className="w-full p-2.5 rounded-lg border border-[#D6CEBE] bg-white"
+                      >
+                        <option value="cream" disabled={config.trimSize === "8.5x11"}>Cream</option>
+                        <option value="white">White</option>
+                      </select>
+                    </div>
+                  </div>
+                  {interiorLocked.trim && (
+                    <p className="-mt-2 text-[11px] text-[#78716C] leading-snug">
+                      Trim matches your interior. Pick the same paper here that you select on KDP.
+                    </p>
+                  )}
                 </>
               )}
             </div>

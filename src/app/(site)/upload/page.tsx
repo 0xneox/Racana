@@ -8,23 +8,12 @@ import { Upload, FileText, CheckCircle2, AlertCircle, ArrowRight, Loader2 } from
 import { formatBytes } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 
-const BOOK_TYPES = [
-  { id: "novel", key: "typeNovel" },
-  { id: "philosophy", key: "typePhilosophy" },
-  { id: "academic", key: "typeAcademic" },
-  { id: "business", key: "typeBusiness" },
-  { id: "memoir", key: "typeMemoir" },
-  { id: "spiritual", key: "typeSpiritual" },
-  { id: "other", key: "typeOther" },
-] as const;
-
 export default function UploadPage() {
   const t = useTranslations("Upload");
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
-  const [bookType, setBookType] = useState<string>("novel");
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +34,7 @@ export default function UploadPage() {
       return;
     }
     setFile(selectedFile);
-    track("upload_started", { fileName: selectedFile.name, size: selectedFile.size, bookType });
+    track("upload_started", { fileName: selectedFile.name, size: selectedFile.size });
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -78,7 +67,6 @@ export default function UploadPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("bookType", bookType);
 
       const res = await fetch("/api/upload", {
         method: "POST",
@@ -114,33 +102,8 @@ export default function UploadPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
-        {/* Book Type Selection Chips */}
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-[#57534E] mb-3">
-            {t("step1")}
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {BOOK_TYPES.map((type) => {
-              const isSelected = bookType === type.id;
-              return (
-                <button
-                  key={type.id}
-                  type="button"
-                  onClick={() => setBookType(type.id)}
-                  className={`px-4 py-2 rounded-full text-xs font-medium transition-all ${
-                    isSelected
-                      ? "bg-[#1C1917] text-[#F8F5EE] shadow-sm font-semibold"
-                      : "bg-[#F8F5EE] border border-[#D6CEBE] text-[#57534E] hover:border-[#1C1917] hover:text-[#1C1917]"
-                  }`}
-                >
-                  {t(type.key)}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Drag & Drop Upload Zone */}
+        {/* Drag & Drop Upload Zone — the analyzer detects the book type
+            itself; no need to ask the author a question we answer anyway. */}
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wider text-[#57534E] mb-3">
             {t("step2")}

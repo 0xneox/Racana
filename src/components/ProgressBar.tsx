@@ -43,8 +43,12 @@ export function ProgressBar({ currentStep }: ProgressBarProps) {
               >
                 {isDone ? <Check className="w-4 h-4 stroke-[3]" /> : step.id}
               </div>
+              {/* On ~360px screens five labels don't fit — keep only the
+                  current step's label on mobile, all of them from sm up. */}
               <span
                 className={`text-[11px] font-medium mt-1.5 whitespace-nowrap ${
+                  isCurrent ? "" : "hidden sm:inline"
+                } ${
                   isCurrent
                     ? "text-[#1C1917] font-semibold"
                     : isDone

@@ -3,6 +3,7 @@ const mammoth: typeof mammothNs =
   (mammothNs as unknown as { default?: typeof mammothNs }).default || mammothNs;
 import JSZip from "jszip";
 import type { Block, DocxParseResult, TableRow } from "./types";
+import { MARK, hasInline, normalizeInline, noteIds, noteRef, stripInline } from "./inline";
 
 function trimText(s: string): string {
   return s.replace(/^\s+|\s+$/g, "");
@@ -61,21 +62,32 @@ async function parseDocxFallback(buffer: Buffer, fixes?: string[]): Promise<Docx
     const styleVal = (styleMatch?.[1] || "").toLowerCase();
 
     const textParts: string[] = [];
-    const textRegex = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
-    let tm: RegExpExecArray | null;
-    while ((tm = textRegex.exec(para)) !== null) {
-      textParts.push(decodeXmlEntities(tm[1]));
+    const runRegex = /<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g;
+    let rm: RegExpExecArray | null;
+    while ((rm = runRegex.exec(para)) !== null) {
+      const run = rm[1];
+      const rPr = run.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/)?.[1] || "";
+      const bold = /<w:b(?:\s+w:val="(?!0|false|off)[^"]*")?\s*\/>/.test(rPr);
+      const italic = /<w:i(?:\s+w:val="(?!0|false|off)[^"]*")?\s*\/>/.test(rPr);
+      const textRegex = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
+      let tm: RegExpExecArray | null;
+      let runText = "";
+      while ((tm = textRegex.exec(run)) !== null) runText += decodeXmlEntities(tm[1]);
+      if (!runText) continue;
+      if (italic) runText = `${MARK.I_ON}${runText}${MARK.I_OFF}`;
+      if (bold) runText = `${MARK.B_ON}${runText}${MARK.B_OFF}`;
+      textParts.push(runText);
     }
     const text = trimText(textParts.join("").replace(/\u00AD/g, ""));
-    if (!text) continue;
+    if (!trimText(stripInline(text))) continue;
 
-    rawParts.push(text);
+    rawParts.push(stripInline(text));
 
     const headingLevel = isHeadingStyle(styleVal);
     if (headingLevel) {
       blocks.push({
         type: headingLevel === 1 ? "heading_h1" : headingLevel === 2 ? "heading_h2" : "heading_h3",
-        text,
+        text: trimText(stripInline(text)),
         level: headingLevel,
       });
     } else if (styleVal.includes("quote")) {
@@ -90,7 +102,7 @@ async function parseDocxFallback(buffer: Buffer, fixes?: string[]): Promise<Docx
   }
 
   return {
-    blocks: normalizeParsedBlocks(repairLineBreakSplits(blocks), fixes),
+    blocks: finalizeInline(normalizeParsedBlocks(repairLineBreakSplits(blocks), fixes)),
     rawText: rawParts.join("\n\n"),
     fixes,
   };
@@ -370,12 +382,27 @@ async function parseDocxWithMammoth(buffer: Buffer, fixes?: string[]): Promise<D
   let paragraphBuffer = "";
   let paragraphIsQuote = false;
   let paragraphHeadingLevel: number | null = null;
+  // Footnotes/endnotes: mammoth emits `<sup><a href="#footnote-1"
+  // id="footnote-ref-1">[1]</a></sup>` in the body and a trailing
+  // `<ol><li id="footnote-1">…<a href="#footnote-ref-1">↑</a></li></ol>`.
+  const notes: Record<string, string> = {};
+  let noteId: string | null = null;
+  let noteBuffer = "";
+  let skipAnchorText = false;
+
+  // Route text into whichever buffer is active.
+  const append = (s: string) => {
+    if (noteId !== null) noteBuffer += s;
+    else if (currentRowCells.length > 0) currentRowCells[currentRowCells.length - 1].text += s;
+    else if (listItems.length > 0 && listType) listItems[listItems.length - 1] += s;
+    else paragraphBuffer += s;
+  };
 
   const flushParagraph = () => {
     const text = trimText(paragraphBuffer);
-    if (text.length > 0) {
+    if (trimText(stripInline(text)).length > 0) {
       if (paragraphHeadingLevel !== null) {
-        nodes.push({ kind: "heading", level: paragraphHeadingLevel, text });
+        nodes.push({ kind: "heading", level: paragraphHeadingLevel, text: trimText(stripInline(text)) });
       } else if (paragraphIsQuote || inBlockquote) {
         nodes.push({ kind: "paragraph", text, isQuote: true });
       } else {
@@ -433,20 +460,28 @@ async function parseDocxWithMammoth(buffer: Buffer, fixes?: string[]): Promise<D
         // standing" render as "under standing" (split at the invisible
         // hyphen). Removing them joins the word back together.
         .replace(/\u00AD/g, "");
-      if (currentRowCells.length > 0) {
-        currentRowCells[currentRowCells.length - 1].text += decoded;
-      } else if (listItems.length > 0 && listType) {
-        listItems[listItems.length - 1] += decoded;
-      } else {
-        paragraphBuffer += decoded;
-      }
+      if (!skipAnchorText) append(decoded);
     }
     lastIndex = matchIndex + fullTag.length;
 
     const isClose = fullTag.startsWith("</");
     if (isClose) {
       const tagName = (match[2] || "").toLowerCase();
-      if (tagName === "p" || tagName === "div") {
+      if (tagName === "strong" || tagName === "b") {
+        append(MARK.B_OFF);
+      } else if (tagName === "em" || tagName === "i") {
+        append(MARK.I_OFF);
+      } else if (tagName === "a") {
+        skipAnchorText = false;
+      }
+      if (noteId !== null && (tagName === "p" || tagName === "div")) {
+        noteBuffer += " ";
+      } else if (tagName === "li" && noteId !== null) {
+        const body = trimText(noteBuffer.replace(/\s+/g, " "));
+        if (stripInline(body).trim()) notes[noteId] = normalizeInline(body);
+        noteId = null;
+        noteBuffer = "";
+      } else if (tagName === "p" || tagName === "div") {
         flushParagraph();
       } else if (tagName === "ol" || tagName === "ul") {
         flushList();
@@ -491,6 +526,19 @@ async function parseDocxWithMammoth(buffer: Buffer, fixes?: string[]): Promise<D
         tagStack.push({ tag: tagName, attrs });
       }
 
+      if (tagName === "strong" || tagName === "b") append(MARK.B_ON);
+      else if (tagName === "em" || tagName === "i") append(MARK.I_ON);
+      else if (tagName === "a") {
+        const href = attrs.href || "";
+        const ref = href.match(/^#((?:foot|end)note-\d+)$/);
+        if (ref && /-ref-/.test(attrs.id || "")) {
+          append(noteRef(ref[1]));
+          skipAnchorText = true;
+        } else if (/^#(?:foot|end)note-ref-\d+$/.test(href)) {
+          skipAnchorText = true; // "↑" back link inside the note body
+        }
+      }
+
       const styleAttr = (attrs.style || attrs["data-style"] || "").toLowerCase();
       const classAttr = attrs.class || "";
       const styleName = styleMap[tagName] || classAttr;
@@ -520,7 +568,11 @@ async function parseDocxWithMammoth(buffer: Buffer, fixes?: string[]): Promise<D
         flushList();
         listType = "ul";
       } else if (tagName === "li") {
-        if (listType) {
+        const id = attrs.id || "";
+        if (/^(?:foot|end)note-\d+$/.test(id)) {
+          noteId = id;
+          noteBuffer = "";
+        } else if (listType) {
           listItems.push("");
         }
       }
@@ -547,15 +599,7 @@ async function parseDocxWithMammoth(buffer: Buffer, fixes?: string[]): Promise<D
 
       // <br> is a self-closing inline break — insert a newline into whatever
       // buffer is currently active (paragraph, list item, or table cell).
-      if (tagName === "br") {
-        if (currentRowCells.length > 0) {
-          currentRowCells[currentRowCells.length - 1].text += "\n";
-        } else if (listItems.length > 0 && listType) {
-          listItems[listItems.length - 1] += "\n";
-        } else {
-          paragraphBuffer += "\n";
-        }
-      }
+      if (tagName === "br") append(noteId !== null ? " " : "\n");
     }
   }
 
@@ -570,7 +614,7 @@ async function parseDocxWithMammoth(buffer: Buffer, fixes?: string[]): Promise<D
       .replace(/&#39;/gi, "'")
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/\u00AD/g, "");
-    paragraphBuffer += decoded;
+    append(decoded);
   }
 
   flushParagraph();
@@ -637,5 +681,51 @@ async function parseDocxWithMammoth(buffer: Buffer, fixes?: string[]): Promise<D
     }
   }
 
-  return { blocks: normalizeParsedBlocks(repairLineBreakSplits(blocks), fixes), rawText, fixes };
+  return {
+    blocks: finalizeInline(normalizeParsedBlocks(repairLineBreakSplits(blocks), fixes), notes),
+    rawText,
+    fixes,
+  };
+}
+
+// Split marker-carrying text into plain `text` + `rich`, and attach the
+// bodies of any footnotes a block references.  Headings stay plain.
+export function finalizeInline(blocks: Block[], notes: Record<string, string> = {}): Block[] {
+  const out: Block[] = [];
+  const attachNotes = (b: Block, richStrings: string[]) => {
+    const ids = richStrings.flatMap(noteIds).filter((id) => notes[id]);
+    if (ids.length) b.notes = Object.fromEntries(ids.map((id) => [id, notes[id]]));
+  };
+  for (const b of blocks) {
+    if (b.type.startsWith("heading")) {
+      if (b.text) b.text = trimText(stripInline(b.text));
+      out.push(b);
+      continue;
+    }
+    if (b.text !== undefined && hasInline(b.text)) {
+      const rich = normalizeInline(trimText(b.text));
+      b.text = trimText(stripInline(rich));
+      if (!b.text) continue;
+      if (hasInline(rich)) {
+        b.rich = rich;
+        attachNotes(b, [rich]);
+      }
+    }
+    if (b.items?.some(hasInline)) {
+      const rich = b.items.map((it) => normalizeInline(trimText(it)));
+      b.items = rich.map((r) => trimText(stripInline(r)));
+      b.richItems = rich;
+      attachNotes(b, rich);
+    }
+    for (const row of b.rows || []) {
+      for (const c of row.cells) {
+        if (!hasInline(c.text)) continue;
+        const rich = normalizeInline(trimText(c.text));
+        c.text = trimText(stripInline(rich));
+        if (hasInline(rich)) c.rich = rich;
+      }
+    }
+    out.push(b);
+  }
+  return out;
 }

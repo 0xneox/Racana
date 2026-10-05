@@ -118,6 +118,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       className={`h-full ${playfair.variable} ${jakarta.variable}`}
+      suppressHydrationWarning
     >
       <head>
         {/* Indic script fonts for the animated multilingual brand logo.

@@ -128,6 +128,9 @@ model ManuscriptAsset {
   pageCountEstimate  Int       @default(1)
   wordCountEstimate  Int       @default(0)
   sha256Checksum     String?
+  // Set when the raw manuscript file has been purged by the retention sweep.
+  // Metadata rows persist so the book's title/history survives file deletion.
+  deletedAt          DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -187,6 +190,7 @@ model BookSettings {
   chapterOpenRecto  Boolean   @default(true)
   bleed             Boolean   @default(false)
   bleedSizeMm       Float     @default(3.175) // 0.125 in
+  includeColophon   Boolean   @default(true)  // closing "Typeset by Racana" page
   mode              SettingsMode @default(format_only)
 
   createdAt         DateTime  @default(now())

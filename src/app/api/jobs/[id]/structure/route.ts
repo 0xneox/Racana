@@ -41,6 +41,10 @@ export async function GET(
     });
     if (ownerRes.error) return ownerRes.error;
 
+    const job = await prisma.bookJob.findUnique({
+      where: { id: params.id },
+      select: { status: true },
+    });
     const row = await prisma.bookStructureJSON.findUnique({
       where: { jobId: params.id },
     });
@@ -51,6 +55,11 @@ export async function GET(
         { status: 200 }
       );
     }
+
+    // The PATCH below refuses edits once the job enters the render pipeline —
+    // expose that upfront so the UI can show the titles as read-only instead
+    // of letting the author edit into a silent 409.
+    const lockedStatuses = ["queued", "typesetting", "qa", "fixing", "ready"];
 
     const data = row.structureData as unknown as StructureData;
     const chapters = data.chapters || [];
@@ -91,6 +100,7 @@ export async function GET(
         preflight: data.preflight || null,
       },
       status: "ready",
+      editable: !job || !lockedStatuses.includes(job.status),
     });
   } catch (err) {
     logServerError("Structure GET API", err);

@@ -22,6 +22,8 @@ export type BlockType =
 
 export interface TableCell {
   text: string;
+  /** `text` with inline bold/italic markers (see manuscript/inline.ts). */
+  rich?: string;
 }
 
 export interface TableRow {
@@ -51,6 +53,16 @@ export interface Block {
    * preflight report so a human can eyeball them before generating.
    */
   confidence?: number;
+  /**
+   * `text` with inline markers for bold, italic and footnote references
+   * (see manuscript/inline.ts).  Renderers use it only while it still matches
+   * `text`; `text` itself is always plain.
+   */
+  rich?: string;
+  /** Per-item rich strings for list blocks, parallel to `items`. */
+  richItems?: string[];
+  /** Footnote bodies (rich strings) keyed by the ids referenced in `rich`. */
+  notes?: Record<string, string>;
 }
 
 export interface WarningItem {

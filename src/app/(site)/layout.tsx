@@ -20,15 +20,16 @@ export default async function SiteLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // No <html>/<body> here — the root layout owns those; nesting them produced
+  // invalid markup. The font classes go on this wrapper so site pages keep
+  // the same Poppins/Devanagari stack they had when it was a <body>.
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${poppins.variable} ${poppins.className} ${devanagari.variable} ${devanagari.className} bg-background text-foreground`}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <Header />
-          {children}
-          <Footer />
-        </ThemeProvider>
-      </body>
-    </html>
+    <div className={`${poppins.variable} ${poppins.className} ${devanagari.variable} ${devanagari.className} bg-background text-foreground`}>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <Header />
+        {children}
+        <Footer />
+      </ThemeProvider>
+    </div>
   );
 }

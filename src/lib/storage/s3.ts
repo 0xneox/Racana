@@ -15,6 +15,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import fs from "fs/promises";
 import path from "path";
@@ -139,6 +140,36 @@ export async function getFromStorage(
       return await fs.readFile(altPath);
     } catch {
       throw new Error(`File not found in storage: ${key} (tried ${flatName} and ${key})`);
+    }
+  }
+}
+
+// Delete an object from storage.  Tries S3 first, then the local-disk
+// fallback.  Missing files are not errors — deletion is best-effort and
+// idempotent so retention sweeps and job deletes can run safely twice.
+export async function deleteFromStorage(
+  key: string,
+  bucket: string = "manuscripts"
+): Promise<void> {
+  const client = getS3Client();
+
+  if (client && s3Available) {
+    try {
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    } catch (err) {
+      console.warn(`[Storage] S3 delete failed for ${bucket}/${key}:`, (err as Error).message);
+    }
+  }
+
+  // Local-disk fallback (keys were flattened on write)
+  const dir = await ensureFallbackDir();
+  try {
+    await fs.unlink(path.join(dir, flattenKey(key)));
+  } catch {
+    try {
+      await fs.unlink(path.join(dir, key));
+    } catch {
+      // already gone — fine
     }
   }
 }

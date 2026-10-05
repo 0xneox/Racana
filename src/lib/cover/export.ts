@@ -7,9 +7,7 @@ import { PDFDocument } from "pdf-lib";
 import {
   generateCoverSvg,
   coverPhysicalSize,
-  spineWidthPx,
-  PANEL_W,
-  COVER_H,
+  EBOOK_COVER_PX,
   type CoverDesignConfig,
   type CoverFont,
 } from "./generator";
@@ -138,14 +136,11 @@ export async function exportReadySvg(config: CoverDesignConfig): Promise<string>
   }
 }
 
+// 300 DPI print size.  The SVG's aspect equals the physical aspect (see
+// coverGeometry), so this is a uniform scale — never a stretch.
 function svgPixelSize(config: CoverDesignConfig): { w: number; h: number } {
-  const svgW =
-    config.format === "paperback"
-      ? PANEL_W * 2 + spineWidthPx(config.pageCount || 100)
-      : PANEL_W;
   const { wIn, hIn } = coverPhysicalSize(config);
-  const scale = (wIn * 300) / svgW;
-  return { w: Math.round(svgW * scale), h: Math.round(hIn * 300) };
+  return { w: Math.round(wIn * 300), h: Math.round(hIn * 300) };
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -157,11 +152,8 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-// Rasterize the cover SVG to a PNG blob at print resolution (300 DPI).
-export async function coverPngBlob(config: CoverDesignConfig): Promise<Blob> {
+async function rasterize(config: CoverDesignConfig, w: number, h: number, mime: "image/png" | "image/jpeg"): Promise<Blob> {
   const svg = await exportReadySvg(config);
-  const { w, h } = svgPixelSize(config);
-
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
   try {
     const img = await loadImage(url);
@@ -172,11 +164,22 @@ export async function coverPngBlob(config: CoverDesignConfig): Promise<Blob> {
     if (!ctx) throw new Error("Canvas 2D context unavailable");
     ctx.drawImage(img, 0, 0, w, h);
     return await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG export failed"))), "image/png")
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Cover export failed"))), mime, 0.92)
     );
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+// Rasterize the cover SVG to a PNG blob at print resolution (300 DPI).
+export async function coverPngBlob(config: CoverDesignConfig): Promise<Blob> {
+  const { w, h } = svgPixelSize(config);
+  return rasterize(config, w, h, "image/png");
+}
+
+// Kindle eBook cover: KDP accepts only JPG/TIFF, ideal size 1600×2560.
+export async function ebookCoverJpgBlob(config: CoverDesignConfig): Promise<Blob> {
+  return rasterize({ ...config, format: "ebook" }, EBOOK_COVER_PX.w, EBOOK_COVER_PX.h, "image/jpeg");
 }
 
 // Wrap the PNG in a PDF whose page matches the physical cover size exactly.

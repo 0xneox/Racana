@@ -43,13 +43,14 @@ describe("cover generator", () => {
 
   it("computes KDP cream-paper spine width", () => {
     expect(spineWidthInches(180)).toBeCloseTo(0.45, 3);
-    expect(spineWidthInches(10)).toBeCloseTo(0.125, 3); // min clamp
+    expect(spineWidthInches(10)).toBeCloseTo(24 * 0.0025, 4); // KDP 24-page minimum
+    expect(spineWidthInches(180, "white")).toBeCloseTo(180 * 0.002252, 4);
   });
 
   it("sizes paperback wrap = 2 panels + spine", () => {
     const s = coverPhysicalSize({ ...base, format: "paperback", pageCount: 180 });
     expect(s.wIn).toBeCloseTo(12.25 + 0.45, 3);
-    expect(s.hIn).toBeCloseTo(9.375, 3);
+    expect(s.hIn).toBeCloseTo(9.25, 3); // 9″ trim + 0.125″ bleed top and bottom
   });
 
   it("wraps text without breaking words", () => {

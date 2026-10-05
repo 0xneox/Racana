@@ -16,6 +16,7 @@ import type { ReactNode } from "react";
 import { LandingHeader } from "@/components/landing/Header";
 import { MobileAction } from "@/components/landing/MobileAction";
 import { AnimatedBrand } from "@/components/AnimatedBrand";
+import { ManuscriptXRay } from "@/components/landing/ManuscriptXRay";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("Meta");
@@ -477,9 +478,9 @@ function BeforeAfter() {
               <div className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-primary">
                 Included · Cover Studio
               </div>
-              <p className="mt-2 text-sm font-semibold">KDP-accurate spine-width cover PDF</p>
+              <p className="mt-2 text-sm font-semibold">KDP-accurate paperback wrap + Kindle cover</p>
               <p className="mt-1 text-xs font-light leading-6 text-muted-foreground">
-                Indian &amp; classical ornamental motifs, 300-DPI print cover PDF, high-res PNG preview.
+                Spine sized from your real page count and paper, matched to your trim. 300-DPI print PDF plus a 1600×2560 Kindle JPG.
               </p>
             </div>
             <div className="border border-border bg-paper p-5">
@@ -488,7 +489,7 @@ function BeforeAfter() {
               </div>
               <p className="mt-2 text-sm font-semibold">One-click for Kindle &amp; Play Books</p>
               <p className="mt-1 text-xs font-light leading-6 text-muted-foreground">
-                Clean chapter structure, correct semantics, embeds all same fonts as print interior.
+                Keeps your bold, italics, footnotes and images, with a nested contents page. Each file is checked before you download it.
               </p>
             </div>
           </div>
@@ -729,6 +730,8 @@ function LandingFooter() {
       [
         ["Book formatting", "/book-formatting"],
         ["KDP formatting", "/kdp-formatting"],
+        ["Vellum for Windows", "/vellum-alternative-windows"],
+        ["Roast My Manuscript", "/roast"],
         [t("myBooks"), "/auth/signin?callbackUrl=%2Fbooks"],
       ],
     ],
@@ -809,6 +812,7 @@ export default function Index() {
       <LandingHeader />
 
       <Hero />
+      <ManuscriptXRay />
       <BuiltForPrint />
       <Method />
       <Styles />

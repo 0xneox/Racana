@@ -70,11 +70,11 @@ const faqs: [string, string][] = [
   ],
   [
     "Does Racana make my KDP cover?",
-    "No. KDP covers are a separate file calculated from your final page count and paper type. Racana formats the interior only — use KDP's cover template generator or a cover designer for the wrap.",
+    "Yes — Cover Studio is included with every paid book. It builds your print-ready paperback wrap with the spine width calculated from your real page count, plus a Kindle eBook cover, directly from the finished interior.",
   ],
   [
     "Can I fix a typo and regenerate?",
-    "Yes. Correct your source manuscript and re-generate the interior — you don't pay again for revisions to the same book.",
+    "Yes. Re-upload your corrected manuscript within 30 days of purchase and re-generate the interior, cover and EPUB — you don't pay again for revisions to the same book.",
   ],
 ];
 
@@ -121,7 +121,7 @@ export default function KdpFormattingPage() {
           <div className="mt-9 flex flex-col items-start gap-5 sm:flex-row sm:items-center">
             <PrimaryCta>Format for KDP</PrimaryCta>
             <p className="text-[11px] leading-6 text-muted-foreground">
-              Free preview · $29 per finished interior · No subscription
+              Free preview · ₹2,450 (≈ $29) per finished book · No subscription
             </p>
           </div>
         </div>
@@ -227,8 +227,8 @@ export default function KdpFormattingPage() {
             </li>
             <li className="flex gap-3">
               <Check className="mt-1 size-4 shrink-0 text-forest" />
-              Your cover is a separate file. KDP calculates spine width from your final page count —
-              generate the cover after the interior is finished.
+              Your cover is a separate file with a spine width calculated from your final page count —
+              Cover Studio builds it automatically once the interior is finished.
             </li>
             <li className="flex gap-3">
               <Check className="mt-1 size-4 shrink-0 text-forest" />
@@ -269,7 +269,7 @@ export default function KdpFormattingPage() {
             <PrimaryCta>Start your book</PrimaryCta>
           </div>
           <p className="mt-5 text-xs text-muted-foreground">
-            Free preview · $29 (≈ ₹2,450) when you're ready
+            Free preview · ₹2,450 (≈ $29) when you're ready
           </p>
         </div>
       </section>

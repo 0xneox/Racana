@@ -1,7 +1,8 @@
 import type { BookStructureV1, Block } from "../../manuscript/types";
 import type { EffectiveSettings } from "../../templates/engine";
 import type { EmbeddedImage, RendererOptions } from "../types";
-import { hasKnownImageMagic } from "../image-check";
+import { imageFormat } from "../image-check";
+import { resolveRich, tokenizeInline, type InlineToken } from "../../manuscript/inline";
 
 export type { EmbeddedImage } from "../types";
 
@@ -81,6 +82,42 @@ function inlineText(text: string): string {
     .replace(/\b(Ch|ch|p|pp|Fig|fig|No|no|Vol|vol|Sec|sec)\. (\d)/g, "$1.~$2");
 }
 
+// Inline bold / italic / footnote refs from the block's `rich` string.  Every
+// embedded call ends with `;` so a following "." or "(" can never be parsed
+// as field access or call arguments on the content value.
+function renderTokens(tokens: InlineToken[], notes?: Record<string, string>): string {
+  return tokens
+    .map((t) => {
+      if (t.kind === "note") {
+        const body = notes?.[t.id];
+        return body ? `#footnote[${renderTokens(tokenizeInline(body))}];` : "";
+      }
+      let out = inlineText(t.text);
+      if (!out.trim()) return out;
+      if (t.italic) out = `#emph[${out}];`;
+      if (t.bold) out = `#strong[${out}];`;
+      return out;
+    })
+    .join("");
+}
+
+// Notes whose anchors were lost (text rewritten after parsing) still print,
+// anchored at the end of the paragraph.
+function orphanNotes(notes?: Record<string, string>): string {
+  return Object.values(notes || {})
+    .map((body) => `#footnote[${renderTokens(tokenizeInline(body))}];`)
+    .join("");
+}
+
+function richText(plain: string | undefined, rich?: string, notes?: Record<string, string>): string {
+  const r = resolveRich(plain, rich);
+  return r ? renderTokens(tokenizeInline(r), notes) : inlineText(plain || "") + orphanNotes(notes);
+}
+
+function blockText(b: Block): string {
+  return richText(b.text, b.rich, b.notes);
+}
+
 interface RenderCtx {
   images: EmbeddedImage[];
   /** Paper height in inches — needed by practice boxes to decide breakability. */
@@ -95,12 +132,12 @@ function convertBlock(block: Block, ctx: RenderCtx): string {
 
   switch (block.type) {
     case "paragraph":
-      return `${inlineText(block.text || "")}\n\n`;
+      return `${blockText(block)}\n\n`;
 
     // A paragraph that should not start with a first-line indent — the first
     // paragraph after a heading or a break.
     case "noindent_paragraph":
-      return `#par(first-line-indent: 0pt)[${inlineText(block.text || "")}]\n\n`;
+      return `#par(first-line-indent: 0pt)[${blockText(block)}]\n\n`;
 
     // A level-1 heading that survived inside a chapter body was not a chapter
     // boundary — render it as a section head so it never triggers the
@@ -116,15 +153,17 @@ function convertBlock(block: Block, ctx: RenderCtx): string {
 
     case "quote":
       if (block.attribution) {
-        return `#quote(block: true, attribution: [${inlineText(block.attribution)}])[${inlineText(block.text || "")}]\n\n`;
+        return `#quote(block: true, attribution: [${inlineText(block.attribution)}])[${blockText(block)}]\n\n`;
       }
-      return `#quote(block: true)[${inlineText(block.text || "")}]\n\n`;
+      return `#quote(block: true)[${blockText(block)}]\n\n`;
 
     case "list_ordered":
-      return (block.items || []).map(item => `+ ${inlineText(item)}`).join("\n") + "\n\n";
-
-    case "list_unordered":
-      return (block.items || []).map(item => `- ${inlineText(item)}`).join("\n") + "\n\n";
+    case "list_unordered": {
+      const marker = block.type === "list_ordered" ? "+" : "-";
+      return (block.items || [])
+        .map((item, i) => `${marker} ${richText(item, block.richItems?.[i], block.notes)}`)
+        .join("\n") + "\n\n";
+    }
 
     case "table":
       if (!block.rows || block.rows.length === 0) return "";
@@ -136,7 +175,7 @@ function convertBlock(block: Block, ctx: RenderCtx): string {
       for (const row of block.rows) {
         for (let i = 0; i < cols; i++) {
           const cell = row.cells[i];
-          typstTable += `  [${inlineText(cell?.text || "")}],\n`;
+          typstTable += `  [${richText(cell?.text, cell?.rich)}],\n`;
         }
       }
       typstTable += `)\n\n`;
@@ -153,15 +192,17 @@ function convertBlock(block: Block, ctx: RenderCtx): string {
         const fileName = `images/img-${images.length}.${ext}`;
         try {
           const buffer = Buffer.from(dataUri[2], "base64");
-          // Undecodable bytes would crash the Typst compile — render a
-          // placeholder box instead and let the image check flag it.
-          if (buffer.length >= 12 && hasKnownImageMagic(buffer)) {
+          // Undecodable bytes or formats Typst can't decode (BMP, TIFF,
+          // WebP) would crash the compile — render a placeholder box instead
+          // and let the image check flag it.
+          const fmt = buffer.length >= 12 ? imageFormat(buffer) : null;
+          if (fmt === "png" || fmt === "jpeg" || fmt === "gif") {
             images.push({ fileName, buffer });
-            const img = `#image("${fileName}", width: 80%)`;
+            const img = `image("${fileName}", width: 80%)`;
             const alt = (block.alt || "").trim();
             return alt
               ? `#align(center)[#figure(${img}, caption: [${escapeTypst(alt)}])]\n\n`
-              : `#align(center)[${img}]\n\n`;
+              : `#align(center)[#${img}]\n\n`;
           }
         } catch {
           // fall through to placeholder on undecodable data
@@ -203,7 +244,7 @@ ${items.join(",\n")}
 
     // --- Epigraph: centered italic quote, attribution in small caps ----------
     case "epigraph": {
-      const quote = inlineText(block.text || "");
+      const quote = blockText(block);
       const attr = block.attribution ? block.attribution.trim() : "";
       if (attr) {
         return `#align(center)[
@@ -226,7 +267,7 @@ ${items.join(",\n")}
       return `#pagebreak(to: "even", weak: true)\n#v(2in)\n#align(center)[#text(size: 8.5pt)[${escapeTypst(block.text || "")}]]\n#pagebreak(to: "even", weak: true)\n\n`;
 
     default:
-      return `${inlineText(block.text || "")}\n\n`;
+      return `${blockText(block)}\n\n`;
   }
 }
 
@@ -345,7 +386,7 @@ function normalizeLine(s: string): string {
 // Choose the words set in small caps at a chapter opening — roughly the first
 // typographic line (3–5 words, max 34 chars).  Returns "" when small caps
 // don't apply (non-Latin scripts, quote-opened lines, very short paragraphs).
-function smallcapsLead(text: string): string {
+export function smallcapsLead(text: string): string {
   if (!/^[\u0041-\u005A\u0061-\u007A\u00C0-\u024F"'\u201C\u2018(]/.test(text)) return "";
   const words = text.split(/\s+/);
   let lead = "";
@@ -478,9 +519,21 @@ export function generateTypstSource(options: RendererOptions): { source: string;
   const chapterFirstParagraph = (block: Block): string => {
     const text = (block.text || "").trim();
     const lead = smallcapsLead(text);
-    if (!lead) return `#par(first-line-indent: 0pt)[${inlineText(text)}]\n\n`;
+    const rich = resolveRich(text, block.rich);
+    if (rich) {
+      // Small caps only when the lead sits entirely in an unstyled first run.
+      const tokens = tokenizeInline(rich);
+      const first = tokens[0];
+      if (lead && first?.kind === "text" && !first.bold && !first.italic && first.text.startsWith(lead)) {
+        const rest = [{ ...first, text: first.text.slice(lead.length) }, ...tokens.slice(1)];
+        return `#par(first-line-indent: 0pt)[#smallcaps[${escapeTypst(lead)}]${renderTokens(rest, block.notes)}]\n\n`;
+      }
+      return `#par(first-line-indent: 0pt)[${renderTokens(tokens, block.notes)}]\n\n`;
+    }
+    const notes = orphanNotes(block.notes);
+    if (!lead) return `#par(first-line-indent: 0pt)[${inlineText(text)}${notes}]\n\n`;
     const rest = text.slice(lead.length);
-    return `#par(first-line-indent: 0pt)[#smallcaps[${escapeTypst(lead)}]${inlineText(rest)}]\n\n`;
+    return `#par(first-line-indent: 0pt)[#smallcaps[${escapeTypst(lead)}]${inlineText(rest)}${notes}]\n\n`;
   };
 
   // Render a block list; paragraphs that follow a heading lose their
