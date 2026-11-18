@@ -6,7 +6,7 @@ import { checkStorageHealth } from "@/lib/storage/s3";
 export const dynamic = "force-dynamic";
 
 const startedAt = Date.now();
-const HEALTH_CHECK_TIMEOUT_MS = 1500;
+const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
 async function withHealthTimeout<T>(
   check: () => Promise<T>,

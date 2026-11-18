@@ -56,7 +56,7 @@ describe("health readiness", () => {
       mocks.findMany.mockReturnValue(new Promise<never>(() => {}));
 
       const responsePromise = GET();
-      await vi.advanceTimersByTimeAsync(1500);
+      await vi.advanceTimersByTimeAsync(5000);
       const response = await responsePromise;
 
       expect(response.status).toBe(503);
@@ -72,7 +72,7 @@ describe("health readiness", () => {
       mocks.checkStorageHealth.mockReturnValue(new Promise<never>(() => {}));
 
       const responsePromise = GET();
-      await vi.advanceTimersByTimeAsync(1500);
+      await vi.advanceTimersByTimeAsync(5000);
       const response = await responsePromise;
 
       expect(response.status).toBe(503);
