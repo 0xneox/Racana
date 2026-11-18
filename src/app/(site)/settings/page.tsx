@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { ProgressBar } from "@/components/ProgressBar";
 import { track } from "@/lib/analytics";
+import { getEffectiveSettings, getTemplate, type BookSettingsFromPrisma } from "@/lib/templates/engine";
 import { ChevronDown, ChevronUp, SlidersHorizontal, ArrowRight, Loader2, BookOpen } from "lucide-react";
 
 interface TrimSizeOption {
@@ -71,7 +72,19 @@ function SettingsContent() {
   const [includeColophon, setIncludeColophon] = useState(true);
   const [bleed, setBleed] = useState(false);
 
+  // Stored overrides (null = template value) and the style fields the author
+  // has edited on this page. Only edited fields are sent as overrides, so an
+  // untouched form never replaces the template's own fonts and layout.
+  const [savedRow, setSavedRow] = useState<Partial<BookSettingsFromPrisma>>({});
+  const [touched, setTouched] = useState<Set<string>>(new Set());
+  const edit = <T,>(key: string, set: (v: T) => void) => (v: T) => {
+    setTouched((prev) => new Set(prev).add(key));
+    set(v);
+  };
+
   const [isLoading, setIsLoading] = useState(false);
+  const [wasRendered, setWasRendered] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (jobId) {
@@ -80,6 +93,7 @@ function SettingsContent() {
         .then((data) => {
           if (data?.job) {
             setBookType(data.job.bookType || "novel");
+            setWasRendered(data.job.status === "ready");
             if (data.job.templateChoice?.templateKey) {
               setTemplateKey(data.job.templateChoice.templateKey);
             }
@@ -88,17 +102,7 @@ function SettingsContent() {
             }
             if (data.job.settings) {
               const s = data.job.settings;
-              setFontBody(s.fontBody || "EB Garamond");
-              setFontHeading(s.fontHeading || "EB Garamond");
-              setFontSizePt(s.fontSizePt || 11.0);
-              setLineHeight(s.lineHeight || 1.35);
-              setMarginInsideMm(s.marginInsideMm || 22.2);
-              setMarginOutsideMm(s.marginOutsideMm || 15.9);
-              setMarginTopMm(s.marginTopMm || 19.1);
-              setMarginBottomMm(s.marginBottomMm || 19.1);
-              setPageNumbers(s.pageNumbers || "bottom_center");
-              setRunningHeaders(s.runningHeaders ?? true);
-              setChapterOpenRecto(s.chapterOpenRecto ?? true);
+              setSavedRow(s);
               setIncludeColophon(s.includeColophon ?? true);
               setBleed(s.bleed ?? false);
             }
@@ -108,6 +112,26 @@ function SettingsContent() {
     }
   }, [jobId]);
 
+  // Show what will actually be rendered: the template's values for this trim
+  // with any stored overrides applied. Fields the author edited are kept.
+  useEffect(() => {
+    const eff = getEffectiveSettings(getTemplate(templateKey), trimSize, savedRow);
+    const keep = (key: string, apply: () => void) => {
+      if (!touched.has(key)) apply();
+    };
+    keep("fontBody", () => setFontBody(eff.body.fontFamily));
+    keep("fontHeading", () => setFontHeading(eff.heading.fontFamily));
+    keep("fontSizePt", () => setFontSizePt(eff.body.fontSizePt));
+    keep("lineHeight", () => setLineHeight(eff.body.leadingEm));
+    keep("marginInsideMm", () => setMarginInsideMm(eff.margins.insideMm));
+    keep("marginOutsideMm", () => setMarginOutsideMm(eff.margins.outsideMm));
+    keep("marginTopMm", () => setMarginTopMm(eff.margins.topMm));
+    keep("marginBottomMm", () => setMarginBottomMm(eff.margins.bottomMm));
+    keep("pageNumbers", () => setPageNumbers(eff.layout.pageNumbersPosition));
+    keep("runningHeaders", () => setRunningHeaders(eff.layout.runningHeaders));
+    keep("chapterOpenRecto", () => setChapterOpenRecto(eff.layout.chapterOpenRecto));
+  }, [templateKey, trimSize, savedRow]);
+
   const handleStartGeneration = async () => {
     setIsLoading(true);
 
@@ -116,6 +140,22 @@ function SettingsContent() {
         // Guard against NaN in numeric inputs — empty fields produce NaN
         // via parseFloat, which would propagate to the API as null/NaN.
         const safeNum = (v: number) => (typeof v === "number" && !isNaN(v) && isFinite(v) ? v : undefined);
+        const styleValues: Record<string, unknown> = {
+          fontBody,
+          fontHeading,
+          fontSizePt: safeNum(fontSizePt),
+          lineHeight: safeNum(lineHeight),
+          marginInsideMm: safeNum(marginInsideMm),
+          marginOutsideMm: safeNum(marginOutsideMm),
+          marginTopMm: safeNum(marginTopMm),
+          marginBottomMm: safeNum(marginBottomMm),
+          pageNumbers,
+          runningHeaders,
+          chapterOpenRecto,
+        };
+        const overrides = Object.fromEntries(
+          Object.entries(styleValues).filter(([k, v]) => touched.has(k) && v !== undefined)
+        );
         // 1. Save settings
         await fetch(`/api/jobs/${jobId}`, {
           method: "PATCH",
@@ -126,29 +166,34 @@ function SettingsContent() {
             trimSize,
             settings: {
               trimSize,
-              fontBody,
-              fontHeading,
-              fontSizePt: safeNum(fontSizePt),
-              lineHeight: safeNum(lineHeight),
-              marginInsideMm: safeNum(marginInsideMm),
-              marginOutsideMm: safeNum(marginOutsideMm),
-              marginTopMm: safeNum(marginTopMm),
-              marginBottomMm: safeNum(marginBottomMm),
-              pageNumbers,
-              runningHeaders,
-              chapterOpenRecto,
+              ...overrides,
               includeColophon,
               bleed,
             },
           }),
         });
 
-        // 2. Start queue generation
-        await fetch(`/api/jobs/${jobId}/start`, { method: "POST" });
+        // 2. Start queue generation. A book that already rendered needs an
+        // explicit re-render or it keeps (and sells) the old interior while
+        // the cover picks up the new trim — a guaranteed KDP rejection pair.
+        const startRes = await fetch(`/api/jobs/${jobId}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(wasRendered ? { regenerate: true } : {}),
+        });
+        if (!startRes.ok) {
+          const d = await startRes.json().catch(() => ({}));
+          setSaveError(d?.error || "Settings saved, but the book could not be re-rendered.");
+          setIsLoading(false);
+          return;
+        }
         track("settings_confirmed", { trimSize, bookType, templateKey }, jobId);
         track("render_started", { trimSize }, jobId);
       } catch (err) {
         console.error("Error starting generation:", err);
+        setSaveError("Settings saved, but the book could not be re-rendered. Try again from this page.");
+        setIsLoading(false);
+        return;
       }
     }
 
@@ -277,7 +322,7 @@ function SettingsContent() {
                   </label>
                   <select
                     value={fontBody}
-                    onChange={(e) => setFontBody(e.target.value)}
+                    onChange={(e) => edit("fontBody", setFontBody)(e.target.value)}
                     className="w-full p-2.5 rounded-lg border border-[#D6CEBE] bg-[#FDFBF7] text-[#1C1917]"
                   >
                     <option value="EB Garamond">EB Garamond (Classic Literary)</option>
@@ -295,7 +340,7 @@ function SettingsContent() {
                   </label>
                   <select
                     value={fontHeading}
-                    onChange={(e) => setFontHeading(e.target.value)}
+                    onChange={(e) => edit("fontHeading", setFontHeading)(e.target.value)}
                     className="w-full p-2.5 rounded-lg border border-[#D6CEBE] bg-[#FDFBF7] text-[#1C1917]"
                   >
                     <option value="EB Garamond">EB Garamond (Classic Serif)</option>
@@ -319,7 +364,7 @@ function SettingsContent() {
                     min="9"
                     max="14"
                     value={fontSizePt}
-                    onChange={(e) => setFontSizePt(parseFloat(e.target.value))}
+                    onChange={(e) => edit("fontSizePt", setFontSizePt)(parseFloat(e.target.value))}
                     className="w-full p-2 rounded-lg border border-[#D6CEBE]"
                   />
                 </div>
@@ -333,7 +378,7 @@ function SettingsContent() {
                     min="1.1"
                     max="1.8"
                     value={lineHeight}
-                    onChange={(e) => setLineHeight(parseFloat(e.target.value))}
+                    onChange={(e) => edit("lineHeight", setLineHeight)(parseFloat(e.target.value))}
                     className="w-full p-2 rounded-lg border border-[#D6CEBE]"
                   />
                 </div>
@@ -345,7 +390,7 @@ function SettingsContent() {
                     type="number"
                     step="0.5"
                     value={marginInsideMm}
-                    onChange={(e) => setMarginInsideMm(parseFloat(e.target.value))}
+                    onChange={(e) => edit("marginInsideMm", setMarginInsideMm)(parseFloat(e.target.value))}
                     className="w-full p-2 rounded-lg border border-[#D6CEBE]"
                   />
                 </div>
@@ -357,7 +402,7 @@ function SettingsContent() {
                     type="number"
                     step="0.5"
                     value={marginOutsideMm}
-                    onChange={(e) => setMarginOutsideMm(parseFloat(e.target.value))}
+                    onChange={(e) => edit("marginOutsideMm", setMarginOutsideMm)(parseFloat(e.target.value))}
                     className="w-full p-2 rounded-lg border border-[#D6CEBE]"
                   />
                 </div>
@@ -368,7 +413,7 @@ function SettingsContent() {
                   <input
                     type="checkbox"
                     checked={chapterOpenRecto}
-                    onChange={(e) => setChapterOpenRecto(e.target.checked)}
+                    onChange={(e) => edit("chapterOpenRecto", setChapterOpenRecto)(e.target.checked)}
                     className="rounded border-[#D6CEBE] text-[#1C1917] focus:ring-0"
                   />
                   <span>{t("rectoChapters")}</span>
@@ -378,7 +423,7 @@ function SettingsContent() {
                   <input
                     type="checkbox"
                     checked={runningHeaders}
-                    onChange={(e) => setRunningHeaders(e.target.checked)}
+                    onChange={(e) => edit("runningHeaders", setRunningHeaders)(e.target.checked)}
                     className="rounded border-[#D6CEBE] text-[#1C1917] focus:ring-0"
                   />
                   <span>{t("runningHeaders")}</span>
@@ -408,6 +453,12 @@ function SettingsContent() {
             </div>
           )}
         </div>
+
+        {saveError && (
+          <p className="text-xs text-[#991B1B] bg-[#FEF2F2] border border-[#FCA5A5] rounded-lg p-2.5 text-center">
+            {saveError}
+          </p>
+        )}
 
         {/* CTA */}
         <div className="flex items-center justify-between pt-4">

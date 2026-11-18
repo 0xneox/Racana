@@ -2,11 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { getFromStorage, uploadToStorage } from "@/lib/storage/s3";
 import { GENERIC_INTERNAL_ERROR, logServerError, requireIdentity, requireJobOwner } from "@/lib/auth-utils";
-import { buildEpub } from "@/lib/epub/generator";
+import { buildEpub, EPUB_GENERATOR_VERSION } from "@/lib/epub/generator";
 import { validateEpub } from "@/lib/epub/validate";
 import { EBOOK_COVER_ARTIFACT } from "@/lib/cover/generator";
-
-const EPUB_GENERATOR_VERSION = 2;
 import type { BookStructureV1 } from "@/lib/manuscript/types";
 
 export async function GET(
@@ -39,7 +37,8 @@ export async function GET(
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
 
-    const paid = (job.payments as any[])?.some((p: any) => p.status === "paid");
+    const isDevUnlock = process.env.NODE_ENV !== "production" || process.env.DEV_UNLOCK_EXPORTS === "true";
+    const paid = isDevUnlock || (job.payments as any[])?.some((p: any) => p.status === "paid");
     if (!paid) {
       return NextResponse.json(
         {

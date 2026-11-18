@@ -20,10 +20,9 @@ export async function register() {
     assertProductionEnv();
   }
 
-  // Reconcile orphaned jobs — jobs stuck in a non-terminal processing state
-  // (analyzing, typesetting, qa, fixing) because the process crashed mid-
-  // render. Reset them to `queued` so they can be re-enqueued, or `failed`
-  // if they've been stuck for over an hour (likely truly dead).
+  // Fail stale processing jobs so the author can safely retry them. Queued
+  // jobs get a longer grace period because a healthy worker may be draining
+  // a backlog.
   try {
     const prisma = (await import("./lib/db")).default;
     const stuckThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
@@ -38,8 +37,21 @@ export async function register() {
         currentStep: "Processing interrupted",
       },
     });
-    if (result.count > 0) {
-      console.log(`[Startup] Reconciled ${result.count} orphaned jobs to 'failed'`);
+    const queuedThreshold = new Date(Date.now() - 6 * 60 * 60 * 1000);
+    const staleQueued = await prisma.bookJob.updateMany({
+      where: {
+        status: "queued",
+        updatedAt: { lt: queuedThreshold },
+      },
+      data: {
+        status: "failed",
+        errorMessage: "Processing could not be started. Please try again.",
+        currentStep: "Queue retry required",
+      },
+    });
+    const failedCount = result.count + staleQueued.count;
+    if (failedCount > 0) {
+      console.log(`[Startup] Reconciled ${failedCount} stale jobs to 'failed'`);
     }
   } catch (err) {
     console.warn("[Startup] Orphan reconciliation failed:", (err as Error).message);

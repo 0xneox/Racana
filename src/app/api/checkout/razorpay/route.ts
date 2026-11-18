@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
         userId: identity.user?.id || null,
         jobId: job.id,
         razorpayOrderId: order.id,
-        amountCents: amountPaise / 100,
+        amountCents: amountPaise,
         currency: 'inr',
         status: 'pending',
         provider: 'razorpay',

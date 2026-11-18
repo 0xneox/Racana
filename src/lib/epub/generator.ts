@@ -5,6 +5,9 @@ import { resolveRich, tokenizeInline, type InlineToken } from "../manuscript/inl
 import { imageFormat } from "../renderer/image-check";
 import { resolveChapterOpener, smallcapsLead } from "../renderer/typst/generator";
 
+/** Bump when the packaged EPUB layout changes so cached artifacts regenerate. */
+export const EPUB_GENERATOR_VERSION = 2;
+
 export interface EpubOptions {
   title: string;
   author?: string;

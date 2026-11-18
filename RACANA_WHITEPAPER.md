@@ -7,9 +7,9 @@
 
 ## 1. What Racana Is
 
-Racana is a web application that converts a finished manuscript (Microsoft Word `.docx` or `.pdf`) into a **print-ready book interior PDF** — the file an author uploads to Amazon KDP or IngramSpark to print a physical book.
+Racana is a web application that converts a finished manuscript (Microsoft Word `.docx` or `.pdf`) into a **print-ready book interior PDF** — the file an author uploads to Amazon KDP or IngramSpark to print a physical book — plus a matching paperback cover and a Kindle-ready EPUB.
 
-It is not a word processor, not a cover designer, not a marketplace, and not an ISBN service. It does exactly one thing: it typesets the interior pages of a book to professional print standards, in about two minutes, for a flat $29 per interior.
+It is not a word processor, not an AI writer, not a marketplace, and not an ISBN service. It does one job end to end: manuscript in, professional book files out — in about two minutes, for a flat ₹2,450 (~$29) per interior.
 
 **The core promise, repeated on every page:** *Racana never rewrites, edits, or summarizes your manuscript. Your words go in. The same words come out — given a finished physical form.*
 
@@ -30,7 +30,7 @@ Racana replaces that workflow with: **upload → choose a style → design cover
 
 ## 3. What Is Live and Working Now
 
-Everything below is implemented, wired to real services, and verified by an automated test suite (34 tests across 8 files, all passing; TypeScript compiles with zero errors).
+Everything below is implemented, wired to real services, and verified by an automated test suite (112 tests across 21 files, all passing — including end-to-end tests that compile real PDFs through the production pipeline; TypeScript compiles with zero errors).
 
 ### 3.1 Manuscript Ingestion
 
@@ -54,9 +54,9 @@ The analyzer (`src/lib/ai/analyzer.ts`, ~1,100 lines) parses the uploaded file i
 
 Title/author/type detection runs on a regex-first path; an OpenAI-compatible LLM endpoint is used to enhance detection only when `OPENAI_API_KEY` is configured. The product works without it.
 
-### 3.3 Six Book Styles (Templates)
+### 3.3 Book Styles (Templates)
 
-Six curated publishing styles, each with its own Typst template, font stack, and layout rules:
+Six curated publishing styles exist in the engine, each with its own Typst template, font stack, and layout rules. **Classic** and **Modern** are offered for new books at launch; the remaining four render for jobs that already carry them and return to the catalogue after their audit pass.
 
 | # | Style | Personality | Body Font | Best for |
 |---|---|---|---|---|
@@ -67,7 +67,9 @@ Six curated publishing styles, each with its own Typst template, font stack, and
 | V | **Literary** | Elegant Bookstore | Libre Baskerville | Fiction, distinctive literary voices |
 | VI | **Indian Classical** | Traditional Ornamental | Noto Serif Devanagari/Tamil/Malayalam | Hindi, Tamil, Malayalam & Indian-language books |
 
-All six templates are verified to render real PDFs with **embedded fonts** (no system fallbacks) — confirmed by the `render-fonts.test.ts` suite, which compiles each template and asserts the output contains no `Roboto`, `UbuntuMono`, or `LinLibertine` fallback glyphs.
+All six templates are verified to render real PDFs with **embedded fonts** (no system fallbacks) — confirmed by the `render-fonts.test.ts` suite, which compiles each template and asserts the output contains no fallback glyphs. The template files are tracked in git (a regression test fails if they're ever un-tracked — a deployment can never silently lose them).
+
+**Settings are overrides, not defaults.** Each template owns its typography; advanced settings are stored as nullable overrides on top. Choosing "Modern" produces Modern fonts, margins, and folios — an untouched settings form can never silently substitute Classic values.
 
 ### 3.4 Format & Specifications
 
@@ -80,26 +82,39 @@ All six templates are verified to render real PDFs with **embedded fonts** (no s
 | 6″ × 9″ | Standard publishing, non-fiction (default) |
 | 8.5″ × 11″ | Textbooks, workbooks, large manuals |
 
-**Advanced mode (collapsed by default):** inside gutter (mm), outside margin (mm), top/bottom margins, body & heading font family, font size (pt), line height, page-number placement, running headers on/off, recto chapter openings on/off, 0.125″ outer bleed on/off, colophon on/off.
+**Advanced mode (collapsed by default):** inside gutter (mm), outside margin (mm), top/bottom margins, body & heading font family, font size (pt), line height, page-number placement, running headers on/off, recto chapter openings on/off, 0.125″ outer bleed on/off, colophon on/off. Margins below KDP's absolute floor (0.25″, or 0.375″ for the inside gutter) are rejected at the API.
+
+**Bleed done right.** When bleed is on, the page is trim + 0.125″ on the outside edge plus 0.125″ top and bottom — the KDP spec exactly — and margins are compensated so the text block stays in the same place relative to trim. Bleed is fixed at 0.125″; any other value is ignored because KDP rejects it.
 
 ### 3.5 The Typesetting Engine
 
 Racana uses **Typst** as its typesetting engine — a modern, ultra-fast, natively reproducible typesetting system.
 
-The pipeline (`src/lib/queue/worker.ts`):
+The pipeline (`src/lib/queue/worker.ts` → `src/lib/renderer/publication-renderer.ts`):
 
 1. **Manuscript analyzed** — the analyzer runs and persists `BookStructureV1`.
 2. **Chapters detected** — the structure is verified to contain renderable content (≥50 chapter words or ≥200 chars of matter). A dedication-only booklet is refused with a clear message.
 3. **Typography applied** — the chosen template + effective settings resolve to a Typst source document via `generateTypstSource()`.
-4. **Layout generated** — the Typst binary (`bin/typst`) compiles the source to a PDF, with `--font-path` pointed at the bundled open-license fonts.
+4. **Layout generated** — the pinned Typst binary (`bin/typst`, v0.11.1) compiles the source to a PDF with the bundled open-license fonts.
 5. **Images checked** — every declared image is verified to be embedded and decodable.
-6. **Trim & print checks** — a real QA pass (`src/lib/renderer/qa.ts`) verifies: PDF magic header, non-empty buffer, page count > 0, physical page size matches the chosen trim (±2pt tolerance), and extractable text length ≥ 50 chars (catches blank renders).
-7. **Final PDF generated** — the interior PDF is uploaded to storage and a `RenderArtifact` row is written. A truncated preview source is also compiled to per-page PNGs (first 4 pages) for the in-app gallery.
-8. **Book ready** — job status flips to `ready` only after the artifact exists.
+6. **Print QA** (`src/lib/renderer/qa.ts`) — a real preflight pass: PDF magic and size sanity, KDP's 24-page minimum, **inside gutter vs. KDP's page-count table** (a 400-page book needs 15.9 mm, not the 9.5 mm minimum), **physical page dimensions of every page** vs. the exact trim or trim+bleed geometry, **font embedding** (a non-embedded standard-14 font fails), extractable text per page, and minimum readable text.
+7. **Signature padding** — the PDF is padded with genuinely blank pages to a multiple of 4 (never below KDP's 24-page floor) via `pdf-lib`.
+8. **Previews** — per-page PNGs rendered for the in-app gallery.
+9. **EPUB 3** — a validated ebook package is generated alongside the print file.
+10. **Ready** — artifacts are uploaded to storage and job status flips to `ready` only after the artifact rows exist.
 
 If any step fails, the job is marked `failed` with a human-readable `errorMessage` and the user is offered **Try Again** or **Upload a different file**.
 
-The worker runs as a BullMQ consumer on a `book-processing` Redis queue, started either embedded in the Next.js server (`instrumentation.ts`) or as a dedicated process (`scripts/worker.ts`). Concurrency is 2.
+**Typographic craft** — verified by tests that were proven to fail against the old engine:
+
+- Chapters open on right-hand (recto) pages; blank filler pages inserted for parity are **truly blank** — no running head, no folio.
+- Front-matter pages carry sequential lowercase roman folios (`i, ii, iii, v, vii…`) with no out-of-order restarts.
+- Running heads alternate book title / chapter title, verso/recto.
+- Small caps on chapter openers are synthesized (capitals at reduced height + tracking) for fonts without a true `smcp` feature.
+- Typst's flow layout keeps at least two lines of a paragraph together at a page break — single-line widows/orphans cannot occur.
+- Practice boxes, tables and block quotes split cleanly across pages.
+
+The worker runs as a BullMQ consumer on a `book-processing` Redis queue, concurrency 2, either embedded in the Next.js server or as a dedicated esbuild-bundled process (`npm run build:worker` → `dist/worker.cjs`, Node ≥ 20.16). The dedicated worker exposes a `/health` endpoint that reports dependency state (503 while Redis is unreachable) and reconnects to Redis forever in production rather than dying on a dropped connection.
 
 ### 3.6 Free Preview vs. Paid Download
 
@@ -145,11 +160,14 @@ A dashboard listing every job owned by the current user (or guest). Each row sho
 
 ### 3.12 Operational Endpoints
 
-- `GET /api/health` — returns `{ ok, uptime, racana, postgres, redis }` for uptime monitoring.
-- `GET /api/jobs/[id]` — full job state for the polling UI.
-- `POST /api/jobs/[id]/start` — re-trigger the pipeline after a failure.
+- `GET /api/health` — returns `{ ok, uptime, racana, postgres, redis }` for uptime monitoring; the dedicated worker exposes its own `/health` that reports dependency state.
+- `GET /api/jobs/[id]` — full job state for the polling UI; `PATCH` saves settings (nullable style overrides) and invalidates stale cover/EPUB artifacts when a rendered book's interior-affecting settings change.
+- `POST /api/jobs/[id]/start` — idempotent pipeline trigger; `{regenerate:true}` re-renders a finished book (free for 30 days after purchase).
 - `GET /api/jobs/[id]/structure` — the analyzed `BookStructureV1`.
 - `GET /api/jobs/[id]/preview/[page]` — a rendered preview PNG.
+- `GET|POST /api/jobs/[id]/cover` — studio config/presets and validated cover artifact uploads.
+- `GET /api/jobs/[id]/download` — interior PDF (watermarked preview or clean paid file).
+- `GET /api/jobs/[id]/epub` — the EPUB package.
 - `POST /api/events` — analytics ingestion (the client `track()` helper posts `upload_started`, `upload_success`, `template_chosen`, `book_ready`, `checkout_started`, `preview_downloaded`, `email_book_sent`, `share_created`, etc.).
 
 ### 3.13 The Marketing Site (`/`)
@@ -158,12 +176,18 @@ A single-page landing with: hero ("Your manuscript in. Your finished book out.")
 
 ### 3.14 Cover Page Studio (`/cover`)
 
-An interactive, browser-based studio that allows authors to design print-ready paperback covers (back, spine, front) and 1:1.6 digital eBook covers without hiring an external designer:
+An interactive, browser-based studio that produces print-ready paperback covers (back, spine, front) and 1:1.6 digital eBook covers without hiring an external designer:
+
 - **Curated cultural presets:** Royal Saffron & Temple Gold, Peacock Indigo & Teal, Classic Obsidian, Sunset Terracotta, Minimalist Ivory, and Midnight Philosophy.
-- **Cultural ornaments:** Vector-rendered sacred Mandalas, Indian Lotuses, traditional Jharokha Arches, and classical typography flourishes.
-- **Real-time live SVG rendering:** 60fps instant visual feedback as the author fine-tunes typography, palettes, spine text, and back-cover blurbs.
-- **Automated spine calculation:** Spine width is dynamically computed based on the book's verified page count and standard paper bulk.
-- **Print & digital export:** Exports 300 DPI vector PDFs via `pdf-lib` and scalable SVGs, automatically saving artifacts to the job.
+- **Cultural ornaments:** vector-rendered sacred Mandalas, Indian Lotuses, traditional Jharokha Arches, classical flourishes, geometric motifs.
+- **Real-time SVG rendering** with print-production guides: bleed edge, trim line, safe zone, spine folds, and the KDP barcode area marked "keep clear."
+- **KDP-accurate geometry:** spine width computed from the typeset interior's *real* page count and the chosen paper stock (cream `0.0025″`/page, white `0.002252″`/page) — never from whatever the browser posts. Trim + 0.125″ bleed panels, matching the interior.
+- **Honest content:** nothing is invented — no default blurb, bio, ISBN, publisher, or tagline. Legacy placeholder values are stripped from saved designs and a stale browser carrying them is refused with a reload instruction. The barcode area stays empty for KDP's own barcode; an ISBN prints only when its check digit validates, and the studio warns when it doesn't.
+- **Print-safety warnings, live:** an over-long blurb, a bio that would collide with the barcode area, spine text that can't fit, and an invalid ISBN are all flagged in the UI — nothing is silently truncated.
+- **Fit-to-width typography:** long author names and spine text shrink to fit (or drop with a warning) instead of running off the trim.
+- **Pixel-exact exports:** the browser rasterizes the preview SVG (with the cover fonts embedded as data URIs, including Indic families) at 300 DPI, embeds it in a correctly-sized PDF via `pdf-lib`, and uploads PDF + PNG + Kindle JPG under a size budget that respects host upload limits. Every upload is validated server-side — magic bytes, exactly one page, physical size matching the real trim + spine — before it's stored.
+- **Paywall done properly:** the watermarked vector SVG stays free for design iteration; print-resolution exports unlock with purchase, enforced server-side.
+- **Server-rendered fallback** (`src/lib/cover/pdf-fallback.ts`): when the client can't rasterize, the server renders the cover with the same bundled TTFs — including Devanagari, Tamil and Malayalam — rather than crashing or silently substituting standard-14 Times.
 
 ### 3.15 One-Click eBook & EPUB 3.0 Export
 
@@ -195,17 +219,22 @@ Author uploads .docx/.pdf
    /create  ──►  Worker: processBookJob()
         │           1. analyze (if not already done)
         │           2. verify renderable content
-        │           3. resolve template + settings → Typst source
+        │           3. resolve template + overrides → Typst source
         │           4. compile Typst → PDF (embedded fonts)
         │           5. verify embedded images
-        │           6. QA: page count, trim size, extractable text
-        │           7. persist interior PDF + preview PNGs to storage
-        │           8. status = ready
+        │           6. print QA: page minimums, gutter table,
+        │              per-page trim/bleed dims, font embedding, text
+        │           7. pad to a 4-page signature (≥24 pages)
+        │           8. persist interior PDF + previews + EPUB
+        │           9. status = ready
+        ▼
+   /cover   ──►  design the wrap: spine sized from the real
+                page count; validated upload saved to the job
         ▼
    /ready  ──►  download free preview (watermarked)
             ──►  or pay ₹2,450 via Razorpay (UPI/cards/netbanking)
                     ──►  signature verify/webhook flips Payment to "paid"
-            ──►  download clean print-ready PDF
+            ──►  download clean print-ready PDF + EPUB + cover files
             ──►  optional: email myself the book
             ──►  optional: mint a public share link
 ```
@@ -219,28 +248,29 @@ The whole flow from upload to a downloadable preview typically completes in unde
 | Layer | Technology |
 |---|---|
 | Frontend | Next.js 14 (App Router), TypeScript, Tailwind CSS, Lucide icons |
-| Database | PostgreSQL 16 via Prisma ORM |
-| Object storage | S3-compatible (MinIO in Docker Compose) + local-disk fallback |
-| Queue & workers | BullMQ + Redis |
-| Typesetting engine | Typst (bundled native binary, `bin/typst`) |
-| PDF manipulation | `pdf-lib` (watermark, QA), `pdf-parse` (text extraction) |
+| Database | PostgreSQL via Prisma ORM (migrate-deploy) |
+| Object storage | S3-compatible (MinIO locally) + local-disk fallback |
+| Queue & workers | BullMQ + Redis; dedicated worker = esbuild bundle (`dist/worker.cjs`), Node ≥ 20.16, `/health`, Redis reconnect-forever |
+| Typesetting engine | Typst 0.11.1 (pinned binary in `bin/`, templates tracked in git) |
+| PDF tooling | `pdf-lib` (padding, watermark, covers), `pdfjs-dist` (QA text extraction), `@pdf-lib/fontkit` + bundled TTFs (cover fallback) |
 | DOCX parsing | `mammoth` + lenient OOXML fallback |
-| Auth | Magic links (Resend) + Google OAuth, HMAC-signed sessions |
+| Auth | Magic links (Resend) + Google OAuth + HMAC-signed guest sessions |
 | Payments | Razorpay orders + signature verify + webhook |
 | Email | Resend |
-| Containerization | Multi-container Docker Compose (postgres, redis, minio, app) |
+| Deployment | Docker Compose (dev); web + Fly worker + managed Postgres/Redis/S3 (prod) |
 
 ---
 
 ## 6. Quality Assurance
 
-- **34 automated tests** across 8 files, all passing.
-- **TypeScript compiles with zero errors** (`tsc --noEmit` clean).
-- **End-to-end render test** compiles a real manuscript (`root.pdf`) through the analyzer and Typst, asserting no system font fallbacks leak into the output.
+- **112 automated tests** across 21 files, all passing; TypeScript compiles clean.
+- **End-to-end render tests** compile real manuscripts through the analyzer, Typst, signature padding, and pdfjs QA — asserting folio order, blank-page cleanliness, line pitch, and no font fallbacks.
 - **Per-template font embedding test** renders all six templates and asserts each uses its intended font, embedded.
-- **Watermark test** confirms the diagonal overlay is applied to previews and absent from paid PDFs.
-- **Analyzer tests** verify front-matter splitting, chapter detection, practice-box detection, citation handling, control-character stripping, and corrupted-script warning behavior.
-- **Validator tests** cover manuscript validation edge cases.
+- **Regression tests were proven against the old code** — the folio-order, blank-page, and small-caps tests fail on the pre-fix engine, so they guard real behavior rather than passing vacuously.
+- **Print QA tests** cover the KDP 24-page minimum, the page-count gutter table, bleed geometry (both enabled and disabled), all-page dimension checks, and non-embedded font rejection.
+- **Cover tests** cover spine math, barcode-area clearance, placeholder stripping, ISBN validation, fit-to-width text, truncation warnings, the watermarked export, and the Indic-safe server fallback.
+- **Templates-tracked test** fails if any `.typ` file is ever removed from git tracking.
+- **Trust tests** cover the 30-day manuscript retention sweep and full job deletion.
 
 ---
 
@@ -248,12 +278,11 @@ The whole flow from upload to a downloadable preview typically completes in unde
 
 These are locked non-goals, not gaps:
 
-- No online word processor or collaborative editor.
-- No cover designer (referrals out to Canva / 1000covers).
-- No ISBN assignment or barcode generation.
-- No print fulfillment or drop-shipping.
+- No online word processor or collaborative editor — upload happens when the manuscript is finished.
+- No AI that writes, rewrites, or summarizes the author's text.
+- No ISBN assignment and no EAN barcode generation (an author-supplied valid ISBN-13 prints as text; the barcode area is left clear for KDP's own barcode).
+- No print fulfillment or drop-shipping — the output is the file an author takes to KDP or IngramSpark.
 - No marketplace of editors, proofreaders, or designers.
-- No EPUB/MOBI export — print-ready PDF interior is the only export.
 
 ---
 
@@ -261,8 +290,8 @@ These are locked non-goals, not gaps:
 
 | Tier | Price | Includes |
 |---|---|---|
-| Free Preview | $0 | Watermarked preview PDF of the typeset interior |
-| Pay-per-book | $29 (≈ ₹2,450) | Clean, print-ready interior PDF, all six styles, all four trim sizes, automated QA, unlimited re-downloads, re-generation after manuscript corrections |
+| Free Preview | $0 | Watermarked preview PDF of the typeset interior; full Cover Studio with watermarked vector exports |
+| Pay-per-book | ₹2,450 (≈ $29) | Clean print-ready interior PDF, Kindle EPUB, print-resolution cover exports (PDF/PNG/JPG), all trim sizes, automated print QA, unlimited re-downloads, free re-generation for 30 days |
 
 No subscription. No tier above $29 is sold today.
 

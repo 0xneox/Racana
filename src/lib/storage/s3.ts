@@ -1,5 +1,5 @@
 // S3-compatible object storage (MinIO/AWS/DigitalOcean Spaces) with a
-// local-disk fallback for development and offline testing.
+// local-disk fallback for development and offline testing only.
 //
 // Buckets used by the application:
 //   "manuscripts" — uploaded DOCX/PDF files
@@ -16,6 +16,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  HeadBucketCommand,
 } from "@aws-sdk/client-s3";
 import fs from "fs/promises";
 import path from "path";
@@ -27,8 +28,8 @@ const region = process.env.S3_REGION || "us-east-1";
 const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === "true";
 const fallbackDir = process.env.STORAGE_FALLBACK_DIR || "./storage";
 
-// Lazily create the S3 client — if credentials are missing we use the
-// local-disk fallback exclusively.
+const isProduction = process.env.NODE_ENV === "production";
+
 let s3Client: S3Client | null = null;
 let s3Available = false;
 
@@ -45,9 +46,30 @@ function getS3Client(): S3Client | null {
     s3Available = true;
     return s3Client;
   } catch (err) {
-    console.warn("[Storage] S3 client init failed, using local fallback:", (err as Error).message);
+    console.warn("[Storage] S3 client init failed:", (err as Error).message);
     return null;
   }
+}
+
+function requireProductionStorage(client: S3Client | null): void {
+  if (isProduction && !client) {
+    throw new Error("Object storage is not configured; refusing to use instance-local storage in production.");
+  }
+}
+
+export async function checkStorageHealth(): Promise<void> {
+  if (!isProduction) return;
+
+  const client = getS3Client();
+  requireProductionStorage(client);
+  if (!client) return;
+
+  const abortSignal = AbortSignal.timeout(2500);
+  await Promise.all(
+    ["manuscripts", "artifacts"].map((bucket) =>
+      client.send(new HeadBucketCommand({ Bucket: bucket }), { abortSignal })
+    )
+  );
 }
 
 // Flatten a slash-separated S3 key into a single filename for local disk
@@ -69,7 +91,7 @@ export interface StorageResult {
   backend: "s3" | "local";
 }
 
-// Upload a buffer to storage.  Tries S3 first, falls back to local disk.
+// Upload a buffer to storage. Production never falls back to instance-local disk.
 export async function uploadToStorage(
   key: string,
   buffer: Buffer,
@@ -77,6 +99,7 @@ export async function uploadToStorage(
   bucket: string = "manuscripts"
 ): Promise<StorageResult> {
   const client = getS3Client();
+  requireProductionStorage(client);
 
   if (client && s3Available) {
     try {
@@ -90,6 +113,7 @@ export async function uploadToStorage(
       );
       return { bucket, key, size: buffer.length, backend: "s3" };
     } catch (err) {
+      if (isProduction) throw err;
       console.warn(`[Storage] S3 upload failed for ${bucket}/${key}, using local fallback:`, (err as Error).message);
     }
   }
@@ -108,6 +132,7 @@ export async function getFromStorage(
   bucket: string = "manuscripts"
 ): Promise<Buffer> {
   const client = getS3Client();
+  requireProductionStorage(client);
 
   if (client && s3Available) {
     try {
@@ -122,6 +147,7 @@ export async function getFromStorage(
       }
       return Buffer.concat(chunks);
     } catch (err) {
+      if (isProduction) throw err;
       console.warn(`[Storage] S3 download failed for ${bucket}/${key}, trying local fallback:`, (err as Error).message);
     }
   }
@@ -144,19 +170,20 @@ export async function getFromStorage(
   }
 }
 
-// Delete an object from storage.  Tries S3 first, then the local-disk
-// fallback.  Missing files are not errors — deletion is best-effort and
-// idempotent so retention sweeps and job deletes can run safely twice.
+// Delete an object from storage. Missing local files and S3 objects are
+// idempotent; storage failures must surface so deletion can be retried.
 export async function deleteFromStorage(
   key: string,
   bucket: string = "manuscripts"
 ): Promise<void> {
   const client = getS3Client();
+  requireProductionStorage(client);
 
   if (client && s3Available) {
     try {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
     } catch (err) {
+      if (isProduction) throw err;
       console.warn(`[Storage] S3 delete failed for ${bucket}/${key}:`, (err as Error).message);
     }
   }

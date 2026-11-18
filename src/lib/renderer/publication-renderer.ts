@@ -6,20 +6,23 @@ import { verifyEmbeddedImages } from "./image-check";
 import type { RendererOptions, QAReportResult } from "./types";
 import { runPdfQa } from "./qa";
 
+// KDP's paperback minimum.  Padding a shorter book up to it adds at most a
+// few blank leaves at the end, which KDP accepts (up to 10).
+export const KDP_MIN_PAGES = 24;
+
 // POD signatures come in multiples of 4 leaves.  Pad the compiled PDF with
 // truly blank pages (pdf-lib blank pages carry zero content objects, so no
 // folio/running-head/watermark can leak onto them).  Doing this in Typst
 // instead makes the layout pass non-convergent.
-export async function padPdfToMultiple(pdfBuffer: Buffer, multiple: number): Promise<Buffer> {
-  if (multiple <= 1) return pdfBuffer;
+export async function padPdfToMultiple(pdfBuffer: Buffer, multiple: number, minPages = KDP_MIN_PAGES): Promise<Buffer> {
   const { PDFDocument } = await import("pdf-lib");
   const doc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
   const pages = doc.getPageCount();
-  const rem = pages % multiple;
-  if (rem === 0) return pdfBuffer;
+  const target = Math.max(minPages, Math.ceil(pages / Math.max(1, multiple)) * Math.max(1, multiple));
+  if (target <= pages) return pdfBuffer;
   const last = doc.getPage(pages - 1);
   const { width, height } = last.getSize();
-  const need = multiple - rem;
+  const need = target - pages;
   for (let i = 0; i < need; i++) doc.addPage([width, height]);
   // Keep object streams off: the QA font scan reads /BaseFont names directly
   // from the PDF bytes.

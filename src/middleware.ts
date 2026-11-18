@@ -50,6 +50,7 @@ const PROTECTED_PAGE_PREFIXES = [
   "/templates",
   "/settings",
   "/create",
+  "/cover",
   "/ready",
   "/books",
 ];

@@ -10,6 +10,7 @@ import { resolveAppRoot } from "../src/lib/app-root";
 import { resolvePdfWorker } from "../src/lib/pdf-worker";
 import { extractTextWithPdfjs } from "../src/lib/manuscript/pdf-parser";
 import { runPdfQa } from "../src/lib/renderer/qa";
+import { padPdfToMultiple } from "../src/lib/renderer/publication-renderer";
 
 const OUT = path.join(process.cwd(), ".audit-out");
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -106,7 +107,8 @@ it("audit render", async () => {
         expect(source).toContain('"EB Garamond"');
       }
 
-      const pdf = await compileTypst(source, fontsDir, images);
+      // Production pads (min 24 pages, multiple of 4) before QA — mirror that.
+      const pdf = await padPdfToMultiple(await compileTypst(source, fontsDir, images), 4);
       fs.writeFileSync(path.join(OUT, `${base}.pdf`), pdf);
       const pngs = await compileTypstPng(source, fontsDir, images, 40);
       pngs.forEach((p, i) => fs.writeFileSync(path.join(OUT, `${base}-p${String(i + 1).padStart(2, "0")}.png`), p));

@@ -1,4 +1,5 @@
-import { PDFDocument, rgb, StandardFonts, degrees } from "pdf-lib";
+// NOTE: this module is bundled into the Cover Studio browser page — keep it
+// free of fs/fontkit. The print-PDF fallback lives in ./pdf-fallback.ts.
 
 export interface CoverPalette {
   primary: string;
@@ -163,7 +164,7 @@ export const COVER_PRESETS: CoverPreset[] = [
 // uniformly into it.  Nothing is ever stretched on export.
 export const PANEL_W = 800;
 export const COVER_H = 1280;
-const BLEED_IN = 0.125;
+export const BLEED_IN = 0.125;
 
 export const TRIM_SIZES_IN: Record<CoverTrim, { w: number; h: number }> = {
   "5x8": { w: 5, h: 8 },
@@ -180,6 +181,45 @@ export const PAPER_IN_PER_PAGE: Record<CoverPaper, number> = {
 
 /** KDP only allows spine text on books with more than 79 pages. */
 export const KDP_SPINE_TEXT_MIN_PAGES = 80;
+
+// KDP barcode area: 2″ × 1.2″, 0.25″ in from the trim at the bottom-right of
+// the back cover. KDP prints its own barcode there, so it must stay clear.
+const BARCODE_W_IN = 2;
+export const BARCODE_H_IN = 1.2;
+export const BARCODE_INSET_IN = 0.25;
+// Lowest authored y any back-cover text may reach so it never runs into the
+// barcode area on any trim (the tightest is 5×8 at ≈1036).
+const BACK_TEXT_MAX_Y = 1020;
+
+/** Returns the ISBN-13 formatted as entered when its checksum is valid, else null. */
+export function validIsbn13(input?: string): string | null {
+  const raw = (input || "").trim();
+  const digits = raw.replace(/[\s-]/g, "");
+  if (!/^97[89]\d{10}$/.test(digits)) return null;
+  const sum = [...digits.slice(0, 12)].reduce((s, d, i) => s + Number(d) * (i % 2 ? 3 : 1), 0);
+  return (10 - (sum % 10)) % 10 === Number(digits[12]) ? raw : null;
+}
+
+// Values the studio used to pre-fill. Saved designs created before they were
+// removed may still carry them — they must never reach a printed cover.
+const PLACEHOLDER_ISBNS = new Set(["9789300000000", "9789300000", "9789389000012"]);
+const PLACEHOLDER_TEXT = [
+  /^A compelling work crafted with timeless typography/i,
+  /^An extraordinary literary achievement that blends timeless wisdom/i,
+  /^A luminous tale woven with the depth of Indian heritage/i,
+  / is a dedicated storyteller with a passion for literature and cultural heritage\.$/i,
+  /^Aryavrat Varma is a novelist and cultural historian/i,
+];
+const PLACEHOLDER_PUBLISHERS = new Set(["racana books", "racana · publishing", "racana publishing"]);
+
+export function stripCoverPlaceholders<T extends Partial<CoverDesignConfig>>(config: T): T {
+  const out = { ...config };
+  if (out.isbn !== undefined && PLACEHOLDER_ISBNS.has(out.isbn.replace(/[\s-]/g, ""))) out.isbn = "";
+  if (out.backBlurb && PLACEHOLDER_TEXT.some((re) => re.test(out.backBlurb!.trim()))) out.backBlurb = "";
+  if (out.aboutAuthor && PLACEHOLDER_TEXT.some((re) => re.test(out.aboutAuthor!.trim()))) out.aboutAuthor = "";
+  if (out.publisher && PLACEHOLDER_PUBLISHERS.has(out.publisher.trim().toLowerCase())) out.publisher = "";
+  return out;
+}
 
 export function trimOf(config: Pick<CoverDesignConfig, "trimSize">): { w: number; h: number } {
   return TRIM_SIZES_IN[config.trimSize || "6x9"] || TRIM_SIZES_IN["6x9"];
@@ -270,7 +310,7 @@ export function wrapText(text: string, maxChars: number): string[] {
 }
 
 // Split a title into balanced lines so long titles never overflow.
-function splitTitle(title: string): string[] {
+export function splitTitle(title: string): string[] {
   const t = title.trim();
   if (t.length <= 22) return [t];
   const words = t.split(/\s+/);
@@ -291,6 +331,99 @@ function splitTitle(title: string): string[] {
 function fitTitleSize(lines: string[], baseSize: number, maxWidth: number): number {
   const longest = Math.max(...lines.map((l) => l.length), 1);
   return Math.max(20, Math.min(baseSize, Math.floor(maxWidth / (longest * 0.62))));
+}
+
+// Single-line fit: shrink until the line fits maxWidth, down to a floor.
+// Capitals with tracking advance ≈ 0.62em.
+export function fitSingleLine(text: string, baseSize: number, maxWidth: number, floor = 8): number {
+  const t = text.trim();
+  if (!t) return baseSize;
+  return Math.max(floor, Math.min(baseSize, Math.floor(maxWidth / (t.length * 0.62))));
+}
+
+// ---------------------------------------------------------------------------
+// Print-safety warnings — shown live in the studio so nothing is silently
+// truncated or dropped on the printed cover.
+// ---------------------------------------------------------------------------
+export interface CoverWarning {
+  code:
+    | "BLURB_TRUNCATED"
+    | "BIO_TRUNCATED"
+    | "SPINE_TEXT_TOO_LONG"
+    | "SPINE_OMITTED"
+    | "AUTHOR_TOO_LONG"
+    | "ISBN_INVALID";
+  message: string;
+}
+
+const BLURB_MAX_LINES = 14;
+
+export function coverContentWarnings(config: CoverDesignConfig): CoverWarning[] {
+  const w: CoverWarning[] = [];
+  if (config.format !== "paperback") return w;
+
+  const blurb = (config.backBlurb || "").trim();
+  if (blurb && wrapText(blurb, 78).length > BLURB_MAX_LINES) {
+    w.push({
+      code: "BLURB_TRUNCATED",
+      message: `Your back-cover blurb is too long — only the first ${BLURB_MAX_LINES} lines will print. Shorten it.`,
+    });
+  }
+
+  const about = (config.aboutAuthor || "").trim();
+  if (about) {
+    const authorY = blurb ? Math.max(240 + Math.min(wrapText(blurb, 78).length, BLURB_MAX_LINES) * 27 + 50, 720) : 240;
+    const maxLines = Math.max(0, Math.floor((BACK_TEXT_MAX_Y - (authorY + 28)) / 22) + 1);
+    if (wrapText(about, Math.max(10, Math.floor(620 / (14 * 0.48)))).length > maxLines) {
+      w.push({
+        code: "BIO_TRUNCATED",
+        message: "Your author bio is too long for the space above the barcode area — it will be cut off.",
+      });
+    }
+  }
+
+  const g = coverGeometry(config);
+  const label = spineLabel(config);
+  if ((config.pageCount || 100) >= KDP_SPINE_TEXT_MIN_PAGES) {
+    if (fitSpineFont(label, g) < 6) {
+      w.push({
+        code: "SPINE_TEXT_TOO_LONG",
+        message: "The spine text is too long to fit — it will be omitted. Shorten the spine title.",
+      });
+    }
+  } else {
+    w.push({
+      code: "SPINE_OMITTED",
+      message: `KDP allows spine text only above ${KDP_SPINE_TEXT_MIN_PAGES - 1} pages — it will be omitted.`,
+    });
+  }
+
+  if (config.author && fitSingleLine(config.author.toUpperCase(), 20, 300) <= 8) {
+    w.push({
+      code: "AUTHOR_TOO_LONG",
+      message: "The author name is very long — it will print extremely small. Consider a shorter form.",
+    });
+  }
+
+  if (config.isbn?.trim() && !validIsbn13(config.isbn)) {
+    w.push({
+      code: "ISBN_INVALID",
+      message: "Not a valid ISBN-13 — it won't be printed. Check the digits.",
+    });
+  }
+  return w;
+}
+
+export function spineLabel(config: CoverDesignConfig): string {
+  return `${config.spineText || formatTitleText(config.title, config.typography.titleCase)} · ${config.author}`;
+}
+
+// Spine text runs the height of the cover; it must fit inside the safe zone
+// with KDP's 0.0625″ clearance at each end of its height (the spine width).
+function fitSpineFont(label: string, g: CoverGeometry): number {
+  const base = Math.min(16, (g.spinePx - 0.125 * g.pxPerIn) * 0.75);
+  const available = g.panelH - 2 * (0.5 * g.pxPerIn); // 0.5″ headroom top & bottom
+  return fitSingleLine(label, base, available, 1); // below ~6px it is dropped instead
 }
 
 // Render a wrapped paragraph as <text> with <tspan> lines (unlike
@@ -417,7 +550,7 @@ function frontCoverBlocks(config: CoverDesignConfig, fontStack: string): string 
   const formattedTitle = formatTitleText(config.title, config.typography.titleCase);
   const lines = splitTitle(formattedTitle);
   const ornament = config.ornament !== "none" ? getOrnamentSvg(config.ornament, p.accent) : "";
-  const pub = escapeXml((config.publisher || "RACANA · PUBLISHING").toUpperCase());
+  const pub = escapeXml((config.publisher || "").trim().toUpperCase());
 
   if (config.layoutStyle === "editorial") {
     const size = fitTitleSize(lines, 52, 610);
@@ -467,7 +600,7 @@ function frontCoverBlocks(config: CoverDesignConfig, fontStack: string): string 
         )}</text>`
       : ""
   }
-  <text x="400" y="1150" text-anchor="middle" font-family="${fontStack}" font-size="20" font-weight="600" fill="${p.textColor}" letter-spacing="4" text-transform="uppercase">${escapeXml(
+  <text x="400" y="1150" text-anchor="middle" font-family="${fontStack}" font-size="${fitSingleLine(config.author.toUpperCase(), 20, 600)}" font-weight="600" fill="${p.textColor}" letter-spacing="4" text-transform="uppercase">${escapeXml(
     config.author.toUpperCase()
   )}</text>
   <text x="400" y="1215" text-anchor="middle" font-family="${fontStack}" font-size="10" fill="${p.accent}" letter-spacing="5" opacity="0.75">${pub}</text>`;
@@ -501,7 +634,7 @@ function frontCoverBlocks(config: CoverDesignConfig, fontStack: string): string 
   ${ornamentAt(ornament, 400, 620, 0.85)}
   <rect x="240" y="1040" width="320" height="72" fill="none" stroke="${p.accent}" stroke-width="1.5" rx="4" />
   <text x="400" y="1065" text-anchor="middle" font-family="${fontStack}" font-size="10" fill="${p.accent}" letter-spacing="3" text-transform="uppercase">A WORK BY</text>
-  <text x="400" y="1095" text-anchor="middle" font-family="${fontStack}" font-size="20" font-weight="600" fill="${p.textColor}" letter-spacing="2" text-transform="uppercase">${escapeXml(
+  <text x="400" y="1095" text-anchor="middle" font-family="${fontStack}" font-size="${fitSingleLine(config.author.toUpperCase(), 20, 300)}" font-weight="600" fill="${p.textColor}" letter-spacing="2" text-transform="uppercase">${escapeXml(
     config.author.toUpperCase()
   )}</text>
   <text x="400" y="1190" text-anchor="middle" font-family="${fontStack}" font-size="11" fill="${p.accent}" letter-spacing="4" opacity="0.85">${pub}</text>`;
@@ -532,7 +665,7 @@ function frontCoverBlocks(config: CoverDesignConfig, fontStack: string): string 
   }
   ${ornamentAt(ornament, 400, 560)}
   <text x="400" y="1040" text-anchor="middle" font-family="${fontStack}" font-size="12" fill="${p.accent}" letter-spacing="3" text-transform="uppercase">A WORK BY</text>
-  <text x="400" y="1090" text-anchor="middle" font-family="${fontStack}" font-size="28" font-weight="600" fill="${p.textColor}" letter-spacing="3" text-transform="uppercase">${escapeXml(
+  <text x="400" y="1090" text-anchor="middle" font-family="${fontStack}" font-size="${fitSingleLine(config.author.toUpperCase(), 28, 620)}" font-weight="600" fill="${p.textColor}" letter-spacing="3" text-transform="uppercase">${escapeXml(
     config.author.toUpperCase()
   )}</text>
   <text x="400" y="1170" text-anchor="middle" font-family="${fontStack}" font-size="11" fill="${p.accent}" letter-spacing="4" opacity="0.8">${pub}</text>`;
@@ -542,35 +675,57 @@ function frontCoverBlocks(config: CoverDesignConfig, fontStack: string): string 
 // Back cover + guides
 // ---------------------------------------------------------------------------
 
+// Only what the author wrote is printed — no stand-in blurb, bio or ISBN.
+// The bottom-right barcode area is left empty for KDP (see barcodeZone).
 function backCoverBlocks(config: CoverDesignConfig, fontStack: string): string {
   const p = config.palette;
-  const blurb =
-    config.backBlurb ||
-    "An extraordinary literary achievement that blends timeless wisdom, vivid characters, and thought-provoking storytelling. Crafted with meticulous typography and devotion to the written word.";
-  const blurbLines = wrapText(blurb, 78).slice(0, 14);
+  const blurb = (config.backBlurb || "").trim();
+  const blurbLines = blurb ? wrapText(blurb, 78).slice(0, BLURB_MAX_LINES) : [];
   const blurbEndY = 240 + blurbLines.length * 27;
 
-  const blurbText = `<text x="80" y="240" font-family="${fontStack}" font-size="16" fill="${p.textColor}">${blurbLines
+  const blurbText = blurb
+    ? `<text x="400" y="140" text-anchor="middle" font-family="${fontStack}" font-size="20" font-weight="700" fill="${p.accent}" letter-spacing="3">PRAISE &amp; OVERVIEW</text>
+  <line x1="320" y1="160" x2="480" y2="160" stroke="${p.accent}" stroke-width="1.5" />
+  <text x="80" y="240" font-family="${fontStack}" font-size="16" fill="${p.textColor}">${blurbLines
     .map((l, i) => `<tspan x="80" dy="${i === 0 ? 0 : 27}">${escapeXml(l)}</tspan>`)
-    .join("")}</text>`;
+    .join("")}</text>`
+    : "";
 
-  const authorY = Math.max(blurbEndY + 50, 720);
-  const authorBlock = config.aboutAuthor
+  const about = (config.aboutAuthor || "").trim();
+  const authorY = blurb ? Math.max(blurbEndY + 50, 720) : 240;
+  const aboutLineH = 22;
+  const aboutMaxLines = Math.max(0, Math.floor((BACK_TEXT_MAX_Y - (authorY + 28)) / aboutLineH) + 1);
+  const aboutText = wrapText(about, Math.max(10, Math.floor(620 / (14 * 0.48))))
+    .slice(0, aboutMaxLines)
+    .join(" ");
+  const authorBlock = about && aboutMaxLines > 0
     ? `<text x="80" y="${authorY}" font-family="${fontStack}" font-size="13" font-weight="700" fill="${p.accent}" letter-spacing="2">ABOUT THE AUTHOR</text>
-  ${svgParagraph(config.aboutAuthor, 80, authorY + 28, 620, 14, 22, p.subtextColor, fontStack)}`
+  ${svgParagraph(aboutText, 80, authorY + 28, 620, 14, aboutLineH, p.subtextColor, fontStack)}`
+    : "";
+
+  const isbn = validIsbn13(config.isbn);
+  const isbnText = isbn
+    ? `<text x="80" y="${BACK_TEXT_MAX_Y + 140}" font-family="${fontStack}" font-size="12" fill="${p.subtextColor}" letter-spacing="1">ISBN ${escapeXml(isbn)}</text>`
     : "";
 
   return `
   <rect x="36" y="36" width="728" height="1208" fill="none" stroke="${p.accent}" stroke-width="1.5" opacity="0.7" />
-  <text x="400" y="140" text-anchor="middle" font-family="${fontStack}" font-size="20" font-weight="700" fill="${p.accent}" letter-spacing="3">PRAISE &amp; OVERVIEW</text>
-  <line x1="320" y1="160" x2="480" y2="160" stroke="${p.accent}" stroke-width="1.5" />
   ${blurbText}
   ${authorBlock}
-  <rect x="480" y="1060" width="220" height="110" fill="#FFFFFF" rx="4" />
-  <text x="590" y="1120" text-anchor="middle" font-family="monospace" font-size="12" fill="#000000">ISBN ${escapeXml(
-    config.isbn || "978-93-000000-0-0"
-  )}</text>
-  <rect x="500" y="1075" width="180" height="30" fill="none" stroke="#000000" stroke-width="1" stroke-dasharray="2,2" />`;
+  ${isbnText}`;
+}
+
+// KDP barcode area on the back panel, in wrap (unscaled) coordinates. The
+// back panel's right edge is the spine fold; its bottom edge carries bleed.
+function barcodeZone(g: CoverGeometry): { x: number; y: number; w: number; h: number } {
+  const w = BARCODE_W_IN * g.pxPerIn;
+  const h = BARCODE_H_IN * g.pxPerIn;
+  return {
+    x: PANEL_W - BARCODE_INSET_IN * g.pxPerIn - w,
+    y: g.panelH - g.bleedPx - BARCODE_INSET_IN * g.pxPerIn - h,
+    w,
+    h,
+  };
 }
 
 // Print-production overlay: bleed edge, trim line, safe zone, spine folds.
@@ -591,7 +746,15 @@ function guidesSvg(isPaperback: boolean, g: CoverGeometry): string {
       )}″</text>`
     : "";
 
+  const bz = barcodeZone(g);
+  const barcodeGuide = isPaperback
+    ? `<rect x="${bz.x}" y="${bz.y}" width="${bz.w}" height="${bz.h}" fill="#FFFFFF" fill-opacity="0.12" stroke="#16A34A" stroke-width="1.5" stroke-dasharray="5,3" />
+  <text x="${bz.x + bz.w / 2}" y="${bz.y + bz.h / 2}" text-anchor="middle" font-size="11" font-weight="700" fill="#16A34A">KDP BARCODE AREA</text>
+  <text x="${bz.x + bz.w / 2}" y="${bz.y + bz.h / 2 + 15}" text-anchor="middle" font-size="9" fill="#16A34A">kept clear · KDP prints it</text>`
+    : "";
+
   return `<g font-family="sans-serif">
+  ${barcodeGuide}
   ${isPaperback ? `<rect x="${bleed}" y="${bleed}" width="${W - bleed * 2}" height="${H - bleed * 2}" fill="none" stroke="#DC2626" stroke-width="1" stroke-dasharray="6,4" opacity="0.8" />` : ""}
   <rect x="${safe}" y="${safe}" width="${W - safe * 2}" height="${H - safe * 2}" fill="none" stroke="#2563EB" stroke-width="1" stroke-dasharray="2,4" opacity="0.7" />
   ${spineGuides}
@@ -606,6 +769,22 @@ function guidesSvg(isPaperback: boolean, g: CoverGeometry): string {
 
 export interface CoverSvgOptions {
   showGuides?: boolean;
+  /** Diagonal "RACANA PREVIEW" overlay for free exports — print files are
+   *  never watermarked; this only marks pre-purchase vector exports. */
+  watermark?: boolean;
+}
+
+// Repeating diagonal watermark across the whole sheet.
+function watermarkSvg(width: number, height: number): string {
+  const rows = Math.ceil(height / 260) + 1;
+  const cols = Math.ceil(width / 560) + 1;
+  let cells = "";
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      cells += `<text x="${c * 560}" y="${r * 260}" font-family="sans-serif" font-size="26" font-weight="700" fill="#FFFFFF" fill-opacity="0.16" letter-spacing="6" transform="rotate(-30 ${c * 560} ${r * 260})">RACANA PREVIEW</text>`;
+    }
+  }
+  return `<g data-watermark="1" pointer-events="none">${cells}</g>`;
 }
 
 export function generateCoverSvg(config: CoverDesignConfig, opts: CoverSvgOptions = {}): string {
@@ -641,6 +820,7 @@ export function generateCoverSvg(config: CoverDesignConfig, opts: CoverSvgOption
   <rect width="${PANEL_W}" height="${COVER_H}" fill="url(#vignette)" />
   ${front}
   ${guides}
+  ${opts.watermark ? watermarkSvg(PANEL_W, COVER_H) : ""}
 </svg>`;
   }
 
@@ -648,7 +828,9 @@ export function generateCoverSvg(config: CoverDesignConfig, opts: CoverSvgOption
   // back panel's bleed is on its left edge, the front panel's on its right.
   const fit = (dx: number) => `translate(${g.insetX + dx} 0) scale(${g.scale})`;
   // KDP: spine text only above 79 pages, with ≥0.0625″ clearance each side.
-  const spineFont = Math.min(16, (spinePx - 0.125 * g.pxPerIn) * 0.75);
+  // Its length must also fit the cover height — shrink, then drop if tiny.
+  const label = spineLabel(config);
+  const spineFont = fitSpineFont(label, g);
   const showSpineText = (config.pageCount || 100) >= KDP_SPINE_TEXT_MIN_PAGES && spineFont >= 6;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${H}" width="100%" height="100%">
   <defs>
@@ -665,9 +847,7 @@ export function generateCoverSvg(config: CoverDesignConfig, opts: CoverSvgOption
   ${
     showSpineText
       ? `<g transform="translate(${PANEL_W + spinePx / 2}, ${H / 2}) rotate(90)">
-    <text x="0" y="${(spineFont * 0.35).toFixed(2)}" text-anchor="middle" font-family="${fontStack}" font-size="${spineFont.toFixed(2)}" font-weight="700" fill="${config.palette.textColor}" letter-spacing="2">${escapeXml(
-      config.spineText || formatTitleText(config.title, config.typography.titleCase)
-    )} · ${escapeXml(config.author)}</text>
+    <text x="0" y="${(spineFont * 0.35).toFixed(2)}" text-anchor="middle" font-family="${fontStack}" font-size="${spineFont.toFixed(2)}" font-weight="700" fill="${config.palette.textColor}" letter-spacing="2">${escapeXml(label)}</text>
   </g>`
       : ""
   }
@@ -677,134 +857,8 @@ export function generateCoverSvg(config: CoverDesignConfig, opts: CoverSvgOption
     </g>
   </g>
   ${guides}
+  ${opts.watermark ? watermarkSvg(width, H) : ""}
 </svg>`;
-}
-
-// ---------------------------------------------------------------------------
-// Server-side PDF fallback (used only when the client can't rasterize —
-// the Cover Studio produces pixel-identical PDFs from the SVG itself).
-// ---------------------------------------------------------------------------
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const clean = hex.replace("#", "");
-  const num = parseInt(clean, 16);
-  if (clean.length === 3) {
-    const r = ((num >> 8) & 15) * 17;
-    const g = ((num >> 4) & 15) * 17;
-    const b = (num & 15) * 17;
-    return { r: r / 255, g: g / 255, b: b / 255 };
-  }
-  const r = (num >> 16) & 255;
-  const g = (num >> 8) & 255;
-  const b = num & 255;
-  return { r: r / 255, g: g / 255, b: b / 255 };
-}
-
-export async function generateCoverPdf(config: CoverDesignConfig): Promise<Buffer> {
-  const doc = await PDFDocument.create();
-
-  // Print points: 1 inch = 72 points. Trim + 0.125″ bleed on the outer edges.
-  const isPaperback = config.format === "paperback";
-  const trim = trimOf(config);
-  const spinePt = isPaperback ? spineWidthInches(config.pageCount || 100, config.paper) * 72 : 0;
-  const panelPt = isPaperback ? (trim.w + BLEED_IN) * 72 : 6 * 72;
-  const coverWidth = isPaperback ? panelPt * 2 + spinePt : panelPt;
-  const coverHeight = isPaperback ? (trim.h + 2 * BLEED_IN) * 72 : 9.6 * 72;
-
-  const page = doc.addPage([coverWidth, coverHeight]);
-
-  const pColor = hexToRgb(config.palette.primary);
-  const sColor = hexToRgb(config.palette.secondary);
-  const aColor = hexToRgb(config.palette.accent);
-  const tColor = hexToRgb(config.palette.textColor);
-  const stColor = hexToRgb(config.palette.subtextColor);
-
-  // Vertical gradient approximation (two stacked rects)
-  page.drawRectangle({ x: 0, y: coverHeight / 2, width: coverWidth, height: coverHeight / 2, color: rgb(pColor.r, pColor.g, pColor.b) });
-  page.drawRectangle({ x: 0, y: 0, width: coverWidth, height: coverHeight / 2, color: rgb(sColor.r, sColor.g, sColor.b) });
-
-  const fontBold = await doc.embedFont(StandardFonts.TimesRomanBold);
-  const fontNormal = await doc.embedFont(StandardFonts.TimesRoman);
-
-  const frontOriginX = isPaperback ? panelPt + spinePt : 0;
-  const centerX = frontOriginX + panelPt / 2;
-
-  page.drawRectangle({
-    x: frontOriginX + 18,
-    y: 18,
-    width: panelPt - 36,
-    height: coverHeight - 36,
-    borderColor: rgb(aColor.r, aColor.g, aColor.b),
-    borderWidth: 1.5,
-  });
-
-  const formattedTitle = formatTitleText(config.title, config.typography.titleCase);
-  const titleLines = splitTitle(formattedTitle);
-  let y = coverHeight - 160;
-  for (const line of titleLines) {
-    let size = 26;
-    while (size > 14 && fontBold.widthOfTextAtSize(line, size) > panelPt - 90) size -= 1;
-    const w = fontBold.widthOfTextAtSize(line, size);
-    page.drawText(line, { x: centerX - w / 2, y, size, font: fontBold, color: rgb(tColor.r, tColor.g, tColor.b) });
-    y -= size + 8;
-  }
-
-  if (config.subtitle) {
-    const size = 12;
-    const w = fontNormal.widthOfTextAtSize(config.subtitle, size);
-    page.drawText(config.subtitle, { x: centerX - w / 2, y: y - 6, size, font: fontNormal, color: rgb(stColor.r, stColor.g, stColor.b) });
-  }
-
-  if (config.tagline) {
-    const size = 8;
-    const tag = config.tagline.toUpperCase();
-    const w = fontNormal.widthOfTextAtSize(tag, size);
-    page.drawText(tag, { x: centerX - w / 2, y: coverHeight - 90, size, font: fontNormal, color: rgb(aColor.r, aColor.g, aColor.b) });
-  }
-
-  const authorUpper = config.author.toUpperCase();
-  const authorSize = 16;
-  const authorW = fontBold.widthOfTextAtSize(authorUpper, authorSize);
-  page.drawText(authorUpper, { x: centerX - authorW / 2, y: 100, size: authorSize, font: fontBold, color: rgb(tColor.r, tColor.g, tColor.b) });
-
-  const pubText = (config.publisher || "RACANA PUBLISHING").toUpperCase();
-  const pubW = fontNormal.widthOfTextAtSize(pubText, 8);
-  page.drawText(pubText, { x: centerX - pubW / 2, y: 50, size: 8, font: fontNormal, color: rgb(aColor.r, aColor.g, aColor.b) });
-
-  if (isPaperback) {
-    if ((config.pageCount || 100) >= KDP_SPINE_TEXT_MIN_PAGES) {
-      const spineLabel = `${config.spineText || formattedTitle}  •  ${config.author}`;
-      const spineTextW = fontBold.widthOfTextAtSize(spineLabel, 10);
-      page.drawText(spineLabel, {
-        x: panelPt + spinePt / 2 - 4,
-        y: (coverHeight - spineTextW) / 2,
-        size: 10,
-        font: fontBold,
-        color: rgb(tColor.r, tColor.g, tColor.b),
-        rotate: degrees(90),
-      });
-    }
-
-    // Back cover: frame, wrapped blurb, barcode box
-    page.drawRectangle({ x: 18, y: 18, width: panelPt - 36, height: coverHeight - 36, borderColor: rgb(aColor.r, aColor.g, aColor.b), borderWidth: 1 });
-    const blurbTitle = "ABOUT THIS BOOK";
-    const blurbTitleW = fontBold.widthOfTextAtSize(blurbTitle, 12);
-    page.drawText(blurbTitle, { x: (panelPt - blurbTitleW) / 2, y: coverHeight - 80, size: 12, font: fontBold, color: rgb(aColor.r, aColor.g, aColor.b) });
-
-    const blurb = config.backBlurb || "";
-    const blurbLines = wrapText(blurb, 85).slice(0, 20);
-    let blurbY = coverHeight - 120;
-    for (const line of blurbLines) {
-      page.drawText(line, { x: 40, y: blurbY, size: 10.5, font: fontNormal, color: rgb(tColor.r, tColor.g, tColor.b) });
-      blurbY -= 15;
-    }
-
-    page.drawRectangle({ x: panelPt - 200, y: 50, width: 150, height: 70, color: rgb(1, 1, 1) });
-    page.drawText(`ISBN ${config.isbn || "978-93-0000-00-0"}`, { x: panelPt - 190, y: 60, size: 8, font: fontNormal, color: rgb(0, 0, 0) });
-  }
-
-  const pdfBytes = await doc.save();
-  return Buffer.from(pdfBytes);
 }
 
 function escapeXml(unsafe: string = ""): string {

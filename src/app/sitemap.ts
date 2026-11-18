@@ -8,6 +8,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: "/upload", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.9 },
     { url: "/book-formatting", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.8 },
     { url: "/kdp-formatting", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.8 },
+    { url: "/vellum-alternative-windows", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.8 },
+    { url: "/roast", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.8 },
     { url: "/privacy", lastModified: new Date(), changeFrequency: "yearly" as const, priority: 0.3 },
     { url: "/terms", lastModified: new Date(), changeFrequency: "yearly" as const, priority: 0.3 },
   ];

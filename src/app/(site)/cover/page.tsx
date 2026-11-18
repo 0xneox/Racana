@@ -23,9 +23,11 @@ import {
 import {
   COVER_PRESETS,
   KDP_SPINE_TEXT_MIN_PAGES,
+  coverContentWarnings,
   coverGeometry,
   generateCoverSvg,
   spineWidthInches,
+  validIsbn13,
   type CoverDesignConfig,
   type CoverPaper,
   type CoverTrim,
@@ -36,6 +38,52 @@ import {
   type CoverLayout,
 } from "@/lib/cover/generator";
 import { coverPdfBlob, coverPngBlob, ebookCoverJpgBlob, downloadBlob, coverFilename } from "@/lib/cover/export";
+
+// Sandbox-only sample — never the starting point for a real job, or a
+// failed fetch would print invented title/blurb/bio on the author's wrap.
+const STUDIO_PREVIEW: CoverDesignConfig = {
+  title: "Echoes of Eternity",
+  subtitle: "A Journey Through Ancient Truths",
+  author: "Aryavrat Varma",
+  tagline: "National Literary Bestseller",
+  genre: "Fiction",
+  spineText: "Echoes of Eternity",
+  backBlurb:
+    "A luminous tale woven with the depth of Indian heritage, philosophical contemplation, and unforgettable characters. This edition has been typeset with devotion to classical bookmaking standards.",
+  aboutAuthor:
+    "Aryavrat Varma is a novelist and cultural historian whose works explore human consciousness, mythology, and timeless landscapes.",
+  isbn: "",
+  publisher: "",
+  palette: COVER_PRESETS[0].palette,
+  typography: COVER_PRESETS[0].typography,
+  ornament: COVER_PRESETS[0].ornament,
+  layoutStyle: COVER_PRESETS[0].layoutStyle,
+  format: "ebook",
+  pageCount: 180,
+  trimSize: "6x9",
+  paper: "cream",
+};
+
+const BLANK_JOB_COVER: CoverDesignConfig = {
+  title: "",
+  subtitle: "",
+  author: "",
+  tagline: "",
+  genre: "",
+  spineText: "",
+  backBlurb: "",
+  aboutAuthor: "",
+  isbn: "",
+  publisher: "",
+  palette: COVER_PRESETS[0].palette,
+  typography: COVER_PRESETS[0].typography,
+  ornament: COVER_PRESETS[0].ornament,
+  layoutStyle: COVER_PRESETS[0].layoutStyle,
+  format: "ebook",
+  pageCount: 150,
+  trimSize: "6x9",
+  paper: "cream",
+};
 
 function CoverStudioContent() {
   const searchParams = useSearchParams();
@@ -52,31 +100,13 @@ function CoverStudioContent() {
   const [isPaid, setIsPaid] = useState(false);
   const [hasJobConfig, setHasJobConfig] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // Degraded-but-successful exports (font fallback, server-rendered file).
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [showGuides, setShowGuides] = useState(true);
 
-  // Cover configuration state
-  const [config, setConfig] = useState<CoverDesignConfig>(() => ({
-    title: "Echoes of Eternity",
-    subtitle: "A Journey Through Ancient Truths",
-    author: "Aryavrat Varma",
-    tagline: "National Literary Bestseller",
-    genre: "Fiction",
-    spineText: "Echoes of Eternity",
-    backBlurb:
-      "A luminous tale woven with the depth of Indian heritage, philosophical contemplation, and unforgettable characters. This edition has been typeset with devotion to classical bookmaking standards.",
-    aboutAuthor:
-      "Aryavrat Varma is a novelist and cultural historian whose works explore human consciousness, mythology, and timeless landscapes.",
-    isbn: "978-93-89000-01-2",
-    publisher: "Racana Books",
-    palette: COVER_PRESETS[0].palette,
-    typography: COVER_PRESETS[0].typography,
-    ornament: COVER_PRESETS[0].ornament,
-    layoutStyle: COVER_PRESETS[0].layoutStyle,
-    format: "ebook",
-    pageCount: 180,
-    trimSize: "6x9",
-    paper: "cream",
-  }));
+  const [config, setConfig] = useState<CoverDesignConfig>(() =>
+    jobId ? BLANK_JOB_COVER : STUDIO_PREVIEW
+  );
   // Trim and page count come from the typeset interior when there is one.
   const [interiorLocked, setInteriorLocked] = useState({ trim: false, pages: false });
 
@@ -91,11 +121,13 @@ function CoverStudioContent() {
       .then((data) => {
         if (data?.config) {
           setHasJobConfig(true);
-          setConfig((prev) => ({
-            ...prev,
+          const nextFormat = (data.config.format as CoverFormat) || "ebook";
+          setFormat(nextFormat);
+          setConfig({
+            ...BLANK_JOB_COVER,
             ...data.config,
-            format: prev.format,
-          }));
+            format: nextFormat,
+          });
           setInteriorLocked({ trim: true, pages: !!data.bookInfo?.pageCountFromInterior });
           if (data?.paid) setIsPaid(true);
         }
@@ -130,6 +162,12 @@ function CoverStudioContent() {
     }
   }, [config, showGuides]);
   const geometry = useMemo(() => coverGeometry(config), [config]);
+  // Things that will be cut off or dropped on the printed cover — shown live
+  // so nothing is silently truncated.
+  const contentWarnings = useMemo(
+    () => coverContentWarnings({ ...config, format: "paperback" }),
+    [config]
+  );
 
   // Apply a preset
   const applyPreset = (preset: CoverPreset) => {
@@ -156,9 +194,11 @@ function CoverStudioContent() {
     }));
   };
 
-  // Download SVG
+  // Download SVG — free (pre-purchase and sandbox) exports carry a preview
+  // watermark so the vector can't be rasterized into a paid print file.
   const handleDownloadSvg = () => {
-    const blob = new Blob([svgOutput], { type: "image/svg+xml" });
+    const svg = !isPaid ? generateCoverSvg(config, { watermark: true }) : svgOutput;
+    const blob = new Blob([svg], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -175,9 +215,11 @@ function CoverStudioContent() {
   const handleDownloadPrimary = async () => {
     setDownloadingPdf(true);
     setExportError(null);
+    setExportNotice(null);
     try {
-      if (format === "paperback") downloadBlob(await coverPdfBlob(paperback), coverFilename(paperback, "pdf"));
-      else downloadBlob(await ebookCoverJpgBlob(config), coverFilename(config, "jpg"));
+      const opts = { onWarning: setExportNotice };
+      if (format === "paperback") downloadBlob(await coverPdfBlob(paperback, opts), coverFilename(paperback, "pdf"));
+      else downloadBlob(await ebookCoverJpgBlob(config, opts), coverFilename(config, "jpg"));
     } catch (e) {
       console.error(e);
       setExportError("Export failed. Try again or download the SVG instead.");
@@ -190,8 +232,9 @@ function CoverStudioContent() {
   const handleDownloadPng = async () => {
     setDownloadingPng(true);
     setExportError(null);
+    setExportNotice(null);
     try {
-      const blob = await coverPngBlob(config);
+      const blob = await coverPngBlob(config, { onWarning: setExportNotice });
       downloadBlob(blob, coverFilename(config, "png"));
     } catch (e) {
       console.error(e);
@@ -204,27 +247,62 @@ function CoverStudioContent() {
   // Save Cover to Job — persists the design config and uploads every format
   // (paperback wrap PDF + PNG, Kindle JPG) so stored artifacts always match
   // the design, whichever tab is open.
+  // Hosts cap request bodies around 4.5 MB — keep the whole save comfortably
+  // below that (config + PDF + JPG always fit; the PNG rides along only when
+  // there's headroom, since the PDF alone is what KDP needs).
+  const UPLOAD_BUDGET = 3.8 * 1024 * 1024;
+
   const handleSaveToBook = async () => {
     if (!jobId) return;
+    if (!config.title.trim()) {
+      setExportError("Add a title before saving the cover.");
+      return;
+    }
     setSaving(true);
     setSavedSuccess(false);
     setExportError(null);
+    setExportNotice(null);
     try {
       const form = new FormData();
       form.append("config", JSON.stringify(config));
+      const warn = (m: string) => setExportNotice(m);
+      let pdfOk = false;
+      let rasterFailed = false;
+      let used = 64 * 1024; // form overhead + config
+      const append = (key: string, blob: Blob, name: string) => {
+        if (used + blob.size <= UPLOAD_BUDGET) {
+          form.append(key, blob, name);
+          used += blob.size;
+        }
+      };
       try {
-        form.append("pdf", await coverPdfBlob(paperback), "cover.pdf");
-        form.append("png", await coverPngBlob(paperback), "cover.png");
-        form.append("ebook", await ebookCoverJpgBlob(config), "cover_kindle.jpg");
+        const pdf = await coverPdfBlob(paperback, { onWarning: warn });
+        form.append("pdf", pdf, "cover.pdf");
+        used += pdf.size;
+        pdfOk = true;
       } catch {
-        // Rasterization unavailable (e.g. headless) — config is still saved.
+        rasterFailed = true;
+      }
+      try {
+        append("png", await coverPngBlob(paperback, { onWarning: warn }), "cover.png");
+        append("ebook", await ebookCoverJpgBlob(config, { onWarning: warn }), "cover_kindle.jpg");
+      } catch {
+        rasterFailed = true;
+      }
+      if (rasterFailed) {
+        setExportNotice(
+          pdfOk
+            ? "Some cover files couldn't be rendered in this browser — re-save later to store all formats."
+            : "This browser couldn't render the print file — the server saved a simplified cover instead. Re-save from a desktop browser for the exact studio design."
+        );
       }
       const res = await fetch(`/api/jobs/${jobId}/cover`, { method: "POST", body: form });
       if (res.ok) {
         setSavedSuccess(true);
         setTimeout(() => setSavedSuccess(false), 4000);
       } else {
-        setExportError("Could not save the cover. Please try again.");
+        const data = await res.json().catch(() => ({}));
+        setExportError(data?.error || "Could not save the cover. Please try again.");
       }
     } catch (e) {
       console.error(e);
@@ -361,9 +439,9 @@ function CoverStudioContent() {
           </div>
 
           {/* Quick Download Buttons — print exports unlock with purchase;
-              the live preview and vector SVG stay free. */}
+              the watermarked vector SVG stays free for design iteration. */}
           <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
-            {isPaid || !jobId ? (
+            {isPaid ? (
               <button
                 type="button"
                 onClick={handleDownloadPrimary}
@@ -390,7 +468,7 @@ function CoverStudioContent() {
                 </span>
               </div>
             )}
-            {isPaid || !jobId ? (
+            {isPaid ? (
               <button
                 type="button"
                 onClick={handleDownloadPng}
@@ -425,7 +503,28 @@ function CoverStudioContent() {
           {!isPaid && jobId && (
             <p className="mt-3 text-[11px] text-[#A8A29E] text-center flex items-center justify-center gap-1.5">
               <Lock className="w-3 h-3" />
-              Print-ready cover exports are included with your purchase.
+              Print-ready cover exports are included with your purchase. The free SVG is watermarked.
+            </p>
+          )}
+          {!jobId && (
+            <p className="mt-3 text-[11px] text-[#A8A29E] text-center flex items-center justify-center gap-1.5">
+              <Lock className="w-3 h-3" />
+              This is a preview sandbox — upload your manuscript to save and export your cover.
+            </p>
+          )}
+          {/* SPINE_OMITTED already has its own note under the preview. */}
+          {format === "paperback" && contentWarnings.some((w) => w.code !== "SPINE_OMITTED") && (
+            <div className="mt-3 space-y-1.5 max-w-md">
+              {contentWarnings.filter((w) => w.code !== "SPINE_OMITTED").map((w) => (
+                <p key={w.code} className="text-[11px] font-medium text-[#92400E] bg-[#FFFBEB] border border-[#FCD34D] rounded-lg px-3 py-1.5">
+                  {w.message}
+                </p>
+              ))}
+            </div>
+          )}
+          {exportNotice && (
+            <p className="mt-3 text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FCD34D] rounded-lg p-2.5 text-center max-w-md">
+              {exportNotice}
             </p>
           )}
           {exportError && (
@@ -622,11 +721,17 @@ function CoverStudioContent() {
                     <input
                       type="text"
                       value={config.isbn || ""}
-                      placeholder="978-93-0000-00-0"
+                      placeholder="Leave empty if you don't have one"
                       onChange={(e) => setConfig({ ...config, isbn: e.target.value })}
                       className="w-full p-2.5 rounded-lg border border-[#D6CEBE] focus:outline-none focus:border-[#1C1917]"
                     />
+                    {config.isbn?.trim() && !validIsbn13(config.isbn) && (
+                      <p className="mt-1.5 text-[11px] font-medium text-[#991B1B]">
+                        Not a valid ISBN-13 — it won&apos;t be printed. Check the digits.
+                      </p>
+                    )}
                     <p className="mt-1.5 text-[11px] text-[#78716C] leading-snug">
+                      The bottom-right of the back cover is kept clear: KDP prints the barcode there.{" "}
                       No ISBN yet? Indian authors get one free at{" "}
                       <a
                         href="https://isbn.gov.in"

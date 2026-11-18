@@ -1,17 +1,70 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PDFDocument } from "pdf-lib";
 import prisma from "@/lib/db";
 import { getFromStorage, uploadToStorage } from "@/lib/storage/s3";
 import { GENERIC_INTERNAL_ERROR, logServerError, requireIdentity, requireJobOwner } from "@/lib/auth-utils";
 import {
-  generateCoverPdf,
   generateCoverSvg,
   COVER_PRESETS,
   EBOOK_COVER_ARTIFACT,
+  stripCoverPlaceholders,
   type CoverDesignConfig,
   type CoverTrim,
+  type CoverFormat,
 } from "@/lib/cover/generator";
+import { generateCoverPdf } from "@/lib/cover/pdf-fallback";
+import { coverPhysicalSize } from "@/lib/cover/generator";
 import { normalizeTrimSize } from "@/lib/templates/engine";
 import type { BookStructureV1 } from "@/lib/manuscript/types";
+import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/http/body-limit";
+
+// ---------------------------------------------------------------------------
+// Upload validation — the studio renders these files, but the server treats
+// them as untrusted bytes: format, page count and physical size are all
+// checked against the job's real interior before anything is stored.
+// ---------------------------------------------------------------------------
+
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+async function isPng(blob: Blob): Promise<boolean> {
+  if (blob.size > MAX_UPLOAD_BYTES) return false;
+  const head = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+  return head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+}
+
+async function isJpeg(blob: Blob): Promise<boolean> {
+  if (blob.size > MAX_UPLOAD_BYTES) return false;
+  const head = new Uint8Array(await blob.slice(0, 3).arrayBuffer());
+  return head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+}
+
+// Returns an error message when the uploaded PDF isn't the cover this job
+// needs — one page, sized to the real trim + spine of the typeset interior.
+async function validateCoverPdf(bytes: Buffer, config: CoverDesignConfig): Promise<string | null> {
+  if (bytes.length > MAX_UPLOAD_BYTES || bytes.subarray(0, 5).toString() !== "%PDF-") {
+    return "The uploaded cover file is not a valid PDF. Re-save from the Cover Studio.";
+  }
+  let doc: PDFDocument;
+  try {
+    doc = await PDFDocument.load(bytes);
+  } catch {
+    return "The uploaded cover PDF could not be read. Re-save from the Cover Studio.";
+  }
+  if (doc.getPageCount() !== 1) {
+    return "The cover PDF must be a single page (the full wrap). Re-export from the Cover Studio.";
+  }
+  const { width, height } = doc.getPage(0).getSize();
+  const expected = coverPhysicalSize({ ...config, format: "paperback" });
+  const tol = 4; // pt — allows rounding between rasterizers
+  if (Math.abs(width - expected.wIn * 72) > tol || Math.abs(height - expected.hIn * 72) > tol) {
+    return (
+      `The cover PDF is ${(width / 72).toFixed(2)}″×${(height / 72).toFixed(2)}″ but this book needs ` +
+      `${expected.wIn.toFixed(2)}″×${expected.hIn.toFixed(2)}″ (trim + spine for ${config.pageCount} pages). ` +
+      "Regenerate the interior or re-export the cover so they match."
+    );
+  }
+  return null;
+}
 
 async function serveStoredArtifact(
   jobId: string,
@@ -68,7 +121,8 @@ export async function GET(
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
 
-    const paid = (job.payments as any[])?.some((p: any) => p.status === "paid");
+    const isDevUnlock = process.env.NODE_ENV !== "production" || process.env.DEV_UNLOCK_EXPORTS === "true";
+    const paid = isDevUnlock || (job.payments as any[])?.some((p: any) => p.status === "paid");
 
     const { searchParams } = new URL(request.url);
     const exportFormat = searchParams.get("export"); // "pdf", "png" or "svg"
@@ -90,8 +144,9 @@ export async function GET(
     const title =
       job.structureJson?.detectedTitle ||
       job.manuscriptAsset?.fileName?.replace(/\.[^/.]+$/, "") ||
-      "My Book";
-    const author = job.structureJson?.detectedAuthor || "Author Name";
+      "";
+    // Never invent an author — empty prints nothing on the wrap.
+    const author = job.structureJson?.detectedAuthor || "";
     // The typeset interior's real page count (from print QA) sets the spine;
     // estimates are only a fallback until the interior has been rendered.
     const renderedPages = job.qaReports[0]?.pageCount;
@@ -118,23 +173,25 @@ export async function GET(
     let saved: Partial<CoverDesignConfig> | null = null;
     try {
       const cfgBuf = await getFromStorage(`artifacts/${params.id}/cover_config.json`, "artifacts");
-      saved = JSON.parse(cfgBuf.toString("utf8")) as Partial<CoverDesignConfig>;
+      saved = stripCoverPlaceholders(JSON.parse(cfgBuf.toString("utf8")) as Partial<CoverDesignConfig>);
     } catch {
       saved = null;
     }
 
+    // Text the author hasn't written stays empty — nothing invented is ever
+    // printed on their cover. Every key is sent explicitly so the studio's
+    // example content can never leak through a missing field.
     const config: CoverDesignConfig = {
       title,
       subtitle: structure?.subtitle || "",
       author,
-      tagline: "First Edition",
+      tagline: "",
       genre: structure?.detectedBookType || "Fiction",
       spineText: title,
-      backBlurb:
-        "A compelling work crafted with timeless typography, rich storytelling, and devotion to the written word. Perfect for readers and collectors alike.",
-      aboutAuthor: `${author} is a dedicated storyteller with a passion for literature and cultural heritage.`,
-      isbn: "978-93-000000-0-0",
-      publisher: "Racana Books",
+      backBlurb: "",
+      aboutAuthor: "",
+      isbn: "",
+      publisher: "",
       palette: defaultPreset.palette,
       typography: defaultPreset.typography,
       ornament: defaultPreset.ornament,
@@ -186,7 +243,12 @@ export async function GET(
     }
 
     if (exportFormat === "svg") {
-      const svg = generateCoverSvg(config);
+      // The vector export stays free for design iteration but is watermarked
+      // until purchase — it can be rasterized at any resolution, so giving
+      // away a clean SVG would bypass the paid print exports entirely.
+      const requestedFormat = (searchParams.get("format") as CoverFormat) || config.format || "ebook";
+      const targetConfig = { ...config, format: requestedFormat };
+      const svg = generateCoverSvg(targetConfig, { watermark: !paid });
       return new NextResponse(svg, {
         headers: {
           "Content-Type": "image/svg+xml",
@@ -228,7 +290,12 @@ export async function POST(
 
     const job = await prisma.bookJob.findUnique({
       where: { id: params.id },
-      include: { manuscriptAsset: true, structureJson: true },
+      include: {
+        manuscriptAsset: true,
+        structureJson: true,
+        settings: true,
+        qaReports: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
     });
 
     if (!job) {
@@ -244,7 +311,7 @@ export async function POST(
     let ebookFile: Blob | null = null;
 
     if (request.headers.get("content-type")?.includes("multipart/form-data")) {
-      const form = await request.formData();
+      const form = await parseFormDataWithinLimit(request, 3 * MAX_UPLOAD_BYTES + 1024 * 1024);
       const raw = form.get("config");
       config = typeof raw === "string" ? (JSON.parse(raw) as CoverDesignConfig) : null;
       const blob = (k: string) => {
@@ -261,6 +328,40 @@ export async function POST(
 
     if (!config || !config.title) {
       return NextResponse.json({ error: "Invalid cover configuration provided." }, { status: 400 });
+    }
+    // Client-rendered files were drawn from the config as sent; if it still
+    // carries retired placeholder text, those files would print it.
+    const cleaned = stripCoverPlaceholders(config);
+    if (JSON.stringify(cleaned) !== JSON.stringify(config)) {
+      return NextResponse.json(
+        { error: "Your cover still contains sample text (ISBN, blurb or publisher). Reload the Cover Studio and save again." },
+        { status: 409 }
+      );
+    }
+
+    // The spine width and trim come from the typeset interior — never from
+    // whatever the browser posted. Same override rule as GET above.
+    const renderedPages = job.qaReports[0]?.pageCount;
+    const jobTrim = normalizeTrimSize(job.settings?.trimSize || job.trimSize) as CoverTrim;
+    config.trimSize = jobTrim;
+    if (renderedPages) config.pageCount = renderedPages;
+    if (jobTrim === "8.5x11") config.paper = "white";
+
+    // Uploaded files are trusted only after their bytes check out: a wrong
+    // trim/spine geometry here would make KDP reject the print file.
+    let uploadedPdf: Buffer | null = null;
+    if (pdfFile) {
+      uploadedPdf = Buffer.from(await pdfFile.arrayBuffer());
+      const pdfError = await validateCoverPdf(uploadedPdf, config);
+      if (pdfError) {
+        return NextResponse.json({ error: pdfError }, { status: 409 });
+      }
+    }
+    if (pngFile && !(await isPng(pngFile))) {
+      return NextResponse.json({ error: "The uploaded PNG is not a valid image. Re-save from the Cover Studio." }, { status: 409 });
+    }
+    if (ebookFile && !(await isJpeg(ebookFile))) {
+      return NextResponse.json({ error: "The uploaded Kindle cover is not a valid JPEG. Re-save from the Cover Studio." }, { status: 409 });
     }
 
     // Persist the design so returning to the studio restores it.
@@ -291,9 +392,7 @@ export async function POST(
     // The studio uploads every format on each save — the paperback full wrap
     // (PDF + PNG) and the Kindle front cover (JPG) — whichever tab is open.
     // Without client files, the paperback PDF is rendered server-side.
-    const pdfBuffer = pdfFile
-      ? Buffer.from(await pdfFile.arrayBuffer())
-      : await generateCoverPdf({ ...config, format: "paperback" });
+    const pdfBuffer = uploadedPdf ?? (await generateCoverPdf({ ...config, format: "paperback" }));
     await storeArtifact("cover_pdf", "cover_print_ready.pdf", pdfBuffer, "application/pdf", "pdf");
     if (pngFile) {
       await storeArtifact("cover_png", "cover_print_ready.png", Buffer.from(await pngFile.arrayBuffer()), "image/png", "png");
@@ -317,6 +416,9 @@ export async function POST(
       svgPreview: svgStr,
     });
   } catch (err) {
+    if (err instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "Cover upload exceeds the 76MB limit." }, { status: 413 });
+    }
     logServerError("Jobs Cover API POST", err);
     return NextResponse.json({ error: GENERIC_INTERNAL_ERROR }, { status: 500 });
   }

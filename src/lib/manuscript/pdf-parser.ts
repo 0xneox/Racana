@@ -266,6 +266,12 @@ export async function parsePdf(buffer: Buffer): Promise<PdfParseResult> {
     rawText = result.text;
     pageCount = result.pageCount;
   } catch (pdfParseErr) {
+    const err = pdfParseErr as any;
+    if (err?.name === "PasswordException" || /password/i.test(err?.message || "")) {
+      throw new Error(
+        "This PDF is password-protected. Please remove password protection before uploading."
+      );
+    }
     console.warn("[PdfParser] pdfjs text extraction failed:", (pdfParseErr as Error)?.message);
     // Do NOT fall back to `buffer.toString("utf8")` — that dumps the raw PDF
     // bytes (compressed streams, `endstream endobj`, `xref`, `%%EOF`) into the

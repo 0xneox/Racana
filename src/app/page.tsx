@@ -15,7 +15,7 @@ import type { ReactNode } from "react";
 
 import { LandingHeader } from "@/components/landing/Header";
 import { MobileAction } from "@/components/landing/MobileAction";
-import { AnimatedBrand } from "@/components/AnimatedBrand";
+import { BrandWord } from "@/components/BrandWord";
 import { ManuscriptXRay } from "@/components/landing/ManuscriptXRay";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -34,7 +34,7 @@ export async function generateMetadata(): Promise<Metadata> {
           url: "/opengraph-image",
           width: 1200,
           height: 630,
-          alt: "Racana — book interior publisher for Indian authors.",
+          alt: "Racana — book interior typesetting for English-language authors.",
         },
       ],
     },
@@ -56,9 +56,7 @@ export async function generateMetadata(): Promise<Metadata> {
       "IngramSpark layout",
       "EPUB conversion",
       "cover design India",
-      "Malayalam book typesetting",
-      "Tamil book formatting",
-      "Devanagari typesetting",
+      "English manuscript typesetting",
     ],
   };
 }
@@ -214,7 +212,7 @@ function Hero() {
       <div className="mx-auto max-w-[1440px] px-5 pb-20 md:px-10 lg:px-16">
         {/* Brand — the animated multilingual logo, left-aligned */}
         <div className="reveal overflow-hidden border-b border-foreground/15 py-4 sm:py-6">
-          <AnimatedBrand />
+          <BrandWord />
         </div>
 
         {/* Hero content — 8 / 4 split on desktop: copy + CTA (left) + hero book visual (right) */}
@@ -285,32 +283,31 @@ function Hero() {
                 className="absolute -left-8 top-10 h-full w-full -translate-x-4 -rotate-2 rounded-sm border border-foreground/5 bg-paper shadow-page"
               />
 
-              {/* Front page — demo book, Classic style, set in Devanagari */}
+              {/* Front page — English sample book in the Classic style */}
               <div
-                lang="hi"
+                lang="en"
                 role="img"
-                aria-label="Classic style page in Devanagari: Chapter Three of The Weight of Quiet Things, 5.5 × 8.5 trade"
+                aria-label="Classic style English page: Chapter Three of The Weight of Quiet Things, 5.5 × 8.5 trade"
                 className="relative mx-auto aspect-[3/4] w-full max-w-sm rounded-sm bg-paper text-foreground shadow-page ring-1 ring-foreground/10"
-                style={{ fontFamily: '"Noto Serif Devanagari", serif' }}
               >
                 <div className="flex h-full flex-col p-7 sm:p-9">
                   <div className="flex justify-between border-b border-rule/50 pb-2 text-[8px] tracking-[0.12em] text-muted-foreground">
-                    <span>शांत चीज़ों का भार</span>
-                    <span>१७</span>
+                    <span>The Weight of Quiet Things</span>
+                    <span>17</span>
                   </div>
                   <div className="flex h-full flex-col justify-center text-center">
-                    <p className="text-[9px] tracking-[0.18em] text-primary">अध्याय तीन</p>
-                    <h3 className="mt-3 text-4xl font-bold leading-[1.15] sm:text-5xl">
-                      शांत चीज़ों<br />
-                      का <span className="text-primary">भार</span>
+                    <p className="text-[9px] tracking-[0.18em] text-primary">Chapter Three</p>
+                    <h3 className="mt-3 font-serif text-3xl font-bold leading-[1.15] sm:text-4xl">
+                      The Weight<br />
+                      of <span className="text-primary">Quiet Things</span>
                     </h3>
                     <div className="mx-auto mt-5 h-px w-9 bg-primary" />
                     <div className="mt-7 space-y-2 text-left text-[10px] leading-[1.8] text-ink-soft">
                       <p>
-                        कुछ कमरे हमें इसलिए याद नहीं रहते कि उनमें क्या हुआ, बल्कि उस ख़ामोशी के लिए जो उनमें ठहरी रही।
+                        There are rooms we remember not for what happened in them, but for the silence they held.
                       </p>
                       <p>
-                        दोपहर घर पर धीरे-धीरे उतर आई। रोशनी फ़र्श पर सरकती रही, और समय के छोड़े हर निशान को ढूँढ़ती रही।
+                        The afternoon settled over the house. Light moved slowly across the floorboards, finding every mark time had left behind.
                       </p>
                     </div>
                   </div>
@@ -753,7 +750,7 @@ function LandingFooter() {
             <Link href="#top" className="flex items-center gap-3">
               <img
                 src="/logo-mark.png"
-                alt="Racana — book interior typesetting for Indian authors"
+                alt="Racana — book interior typesetting for English-language authors"
                 className="h-10 w-auto"
               />
               <p className="font-serif text-3xl tracking-[0.14em]">RACANA</p>

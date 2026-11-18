@@ -110,8 +110,16 @@ async function embeddedFontCss(query: string, latinOnly: boolean): Promise<strin
   return promise;
 }
 
+export interface ExportOptions {
+  /** Called when an export succeeds but something silently degraded — e.g.
+   *  the display fonts couldn't be fetched, so the export used system fonts
+   *  that won't match the preview. Never called for hard failures (those
+   *  reject the promise instead). */
+  onWarning?: (message: string) => void;
+}
+
 // SVG with its fonts embedded — safe to rasterize in an isolated Image context.
-export async function exportReadySvg(config: CoverDesignConfig): Promise<string> {
+export async function exportReadySvg(config: CoverDesignConfig, opts?: ExportOptions): Promise<string> {
   let svg = generateCoverSvg(config, { showGuides: false });
   try {
     const indic = neededIndicFamilies(config);
@@ -122,7 +130,10 @@ export async function exportReadySvg(config: CoverDesignConfig): Promise<string>
       ),
     ]);
     const css = cssParts.filter(Boolean).join("\n");
-    if (!css) return svg;
+    if (!css) {
+      opts?.onWarning?.("Cover fonts couldn't be loaded — this export uses system fonts and may not match the preview. Check your connection and try again.");
+      return svg;
+    }
     // Append needed Indic families to every font stack so fallback stays
     // inside the embedded set rather than hitting unavailable system fonts.
     for (const fam of indic) {
@@ -132,6 +143,7 @@ export async function exportReadySvg(config: CoverDesignConfig): Promise<string>
     }
     return svg.replace("<defs>", `<defs>\n    <style>${css}</style>`);
   } catch {
+    opts?.onWarning?.("Cover fonts couldn't be loaded — this export uses system fonts and may not match the preview. Check your connection and try again.");
     return svg; // offline / fetch failure — export with system font fallback
   }
 }
@@ -152,8 +164,8 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-async function rasterize(config: CoverDesignConfig, w: number, h: number, mime: "image/png" | "image/jpeg"): Promise<Blob> {
-  const svg = await exportReadySvg(config);
+async function rasterize(config: CoverDesignConfig, w: number, h: number, mime: "image/png" | "image/jpeg", opts?: ExportOptions): Promise<Blob> {
+  const svg = await exportReadySvg(config, opts);
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
   try {
     const img = await loadImage(url);
@@ -172,25 +184,29 @@ async function rasterize(config: CoverDesignConfig, w: number, h: number, mime: 
 }
 
 // Rasterize the cover SVG to a PNG blob at print resolution (300 DPI).
-export async function coverPngBlob(config: CoverDesignConfig): Promise<Blob> {
+export async function coverPngBlob(config: CoverDesignConfig, opts?: ExportOptions): Promise<Blob> {
   const { w, h } = svgPixelSize(config);
-  return rasterize(config, w, h, "image/png");
+  return rasterize(config, w, h, "image/png", opts);
 }
 
 // Kindle eBook cover: KDP accepts only JPG/TIFF, ideal size 1600×2560.
-export async function ebookCoverJpgBlob(config: CoverDesignConfig): Promise<Blob> {
-  return rasterize({ ...config, format: "ebook" }, EBOOK_COVER_PX.w, EBOOK_COVER_PX.h, "image/jpeg");
+export async function ebookCoverJpgBlob(config: CoverDesignConfig, opts?: ExportOptions): Promise<Blob> {
+  return rasterize({ ...config, format: "ebook" }, EBOOK_COVER_PX.w, EBOOK_COVER_PX.h, "image/jpeg", opts);
 }
 
-// Wrap the PNG in a PDF whose page matches the physical cover size exactly.
-export async function coverPdfBlob(config: CoverDesignConfig): Promise<Blob> {
-  const png = await coverPngBlob(config);
-  const pngBytes = await png.arrayBuffer();
+// Wrap the 300 DPI raster in a PDF whose page matches the physical cover size
+// exactly. A JPEG is embedded rather than a PNG: gradient covers compress
+// ~4× smaller, which keeps a save request under the host's upload limit while
+// still printing at full resolution.
+export async function coverPdfBlob(config: CoverDesignConfig, opts?: ExportOptions): Promise<Blob> {
+  const { w, h } = svgPixelSize(config);
+  const jpg = await rasterize(config, w, h, "image/jpeg", opts);
+  const jpgBytes = await jpg.arrayBuffer();
   const { wIn, hIn } = coverPhysicalSize(config);
 
   const doc = await PDFDocument.create();
   const page = doc.addPage([wIn * 72, hIn * 72]);
-  const embedded = await doc.embedPng(pngBytes);
+  const embedded = await doc.embedJpg(jpgBytes);
   page.drawImage(embedded, { x: 0, y: 0, width: wIn * 72, height: hIn * 72 });
   const bytes = await doc.save();
   return new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" });

@@ -24,11 +24,7 @@ export async function deleteJobEverywhere(jobId: string): Promise<void> {
   objects.push({ key: `artifacts/${jobId}/cover_config.json`, bucket: "artifacts" });
 
   for (const o of objects) {
-    try {
-      await deleteFromStorage(o.key, o.bucket);
-    } catch {
-      // best-effort — the DB row is deleted regardless
-    }
+    await deleteFromStorage(o.key, o.bucket);
   }
 
   await prisma.bookJob.delete({ where: { id: jobId } });

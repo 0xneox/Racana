@@ -1,173 +1,138 @@
-# Racana — Manuscript In, Book Out (V1)
+# Racana — Manuscript In, Book Out
 
-> **“Upload your manuscript. Choose a style. We make the book.”**  
-> A zero-technical-knowledge web application that turns an uploaded DOCX or PDF manuscript into a bookstore-grade, print-ready interior PDF.
-
----
-
-## 🎯 Core Promise & Non-Goals
-
-- **Zero Technical Knowledge Required**: Users never need to calculate margins, gutter compensation, spine trim, fonts, widows/orphans, outer bleed, or PDF/X conformance.
-- **Strict Non-Goals**: No online word processor, no collaborative editing, no 1,000 bloated templates, no AI writing generators, no cover design tools, no marketplace, no ISBN, no fulfillment/print-on-demand drop-shipping.
+> **“Upload your manuscript. Choose a style. We make the book.”**
+> A zero-technical-knowledge web application that turns an uploaded DOCX or PDF manuscript into a bookstore-grade, print-ready interior PDF — plus a matching paperback cover and Kindle EPUB.
 
 ---
 
-## 🏗️ Architecture & Technology Stack
+## Core Promise & Non-Goals
 
-- **Frontend**: Next.js 14 (App Router) + TypeScript + Tailwind CSS + Lucide Icons + Bookstore Aesthetic
-- **Database & ORM**: PostgreSQL 16 via Prisma ORM
-- **Object Storage**: S3-compatible storage (MinIO in Docker Compose) with resilient local disk fallback
-- **Queue & Background Jobs**: BullMQ + Redis for asynchronous 8-step pipeline progression
-- **Typesetting Engine**: **Typst** (Locked & Committed). Ultra-fast compilation, native binding/recto-verso support, and reproducible PDF/X output
-- **Authentication**: Email magic links (single-use, 15-min tokens via Resend) + Google OAuth (enabled when `GOOGLE_CLIENT_ID`/`SECRET` are set) with HMAC-signed session cookies
-- **Containerization**: Multi-container Docker Compose setup (`postgres`, `redis`, `minio`, `minio-create-buckets`, `app`)
+- **Zero Technical Knowledge Required**: users never need to calculate margins, gutter compensation, spine width, fonts, bleed, or PDF/X conformance.
+- **Strict Non-Goals**: no online word processor, no collaborative editing, no AI writing generators, no marketplace, no ISBN assignment or barcode generation, no print fulfillment.
 
 ---
 
-## 🚀 Quickstart
+## Architecture & Stack
 
-### Option A: One-Command Start with Docker Compose (Recommended)
-
-1. Clone the repository and copy the environment variables:
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Start the entire application stack:
-   ```bash
-   docker compose up --build
-   ```
-
-3. Open your browser at [http://localhost:3000](http://localhost:3000).
-
-Services started:
-- **Next.js Web App**: `http://localhost:3000`
-- **PostgreSQL**: `localhost:5432` (DB: `manuscript_book_out`)
-- **Redis**: `localhost:6379`
-- **MinIO API**: `http://localhost:9000`
-- **MinIO Console**: `http://localhost:9001` (User: `minioadmin` / Pass: `minioadmin`)
+- **Frontend**: Next.js 14 (App Router) + TypeScript + Tailwind CSS + Lucide icons
+- **Database & ORM**: PostgreSQL via Prisma ORM (migrations in `prisma/migrations/`)
+- **Object Storage**: S3-compatible storage (MinIO locally); local-disk fallback is development-only, production fails closed. The web and worker services must share S3 credentials and buckets.
+- **Queue**: BullMQ + Redis; jobs run either embedded in the Next.js process or on a dedicated worker (`RACANA_EMBEDDED_WORKER=false` disables the embedded one)
+- **Typesetting**: **Typst 0.11.1** (pinned binary in `bin/`), templates in `src/lib/renderer/typst/templates/` — **tracked in git**; a regression test fails if they're ever un-tracked
+- **PDF tooling**: `pdf-lib` (padding, watermark, cover wrap), `pdfjs-dist` (text extraction for QA — **requires Node ≥ 20.16**), `@pdf-lib/fontkit` + bundled TTFs (server cover fallback)
+- **Auth**: Email magic links (single-use, 15-min tokens via Resend) + Google OAuth when `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are set + HMAC-signed guest sessions
+- **Payments**: Razorpay (₹2,450 per interior) — order, signature verify, and webhook paths
 
 ---
 
-### Option B: Local Standalone Development
+## Quickstart
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+### Docker Compose (recommended)
 
-2. Generate Prisma Client:
-   ```bash
-   npx prisma generate
-   ```
+```bash
+cp .env.example .env
+docker compose up --build
+```
 
-3. Run the development server:
-   ```bash
-   npm run dev
-   ```
+Services: web app `:3000`, Postgres `:5432` (db `manuscript_book_out`), Redis `:6379`, MinIO API `:9000`, MinIO console `:9001` (`minioadmin`/`minioadmin`).
 
-4. Run the automated test suite:
-   ```bash
-   npm test
-   ```
+### Local development
 
----
+```bash
+npm install
+npx prisma generate
+npm run dev          # http://localhost:3005
+npm test             # vitest — ~112 tests, compiles real PDFs via bin/typst
+npm run build:worker # bundle the queue worker to dist/worker.cjs
+```
 
-## 🗺️ User Journey Routes
+A local Postgres/S3 is optional for the test suite — tests fall back where possible.
 
-1. **`/` (Marketing Landing Page)**
-   - Bookstore-grade aesthetic with warm paper palette and serif typography.
-   - Exact headline: *"Your manuscript in. Your finished book out."*
-   - Exact subtitle: *"Upload. Choose a style. Get a print-ready book."*
-   - Honest pricing: Free Preview ($0) vs Pay-per-book ($29) vs Pro ($79/mo waitlist).
-
-2. **`/upload` (Step 1: Upload Manuscript)**
-   - Drag-and-drop zone for `.docx` and `.pdf` manuscripts (up to 50MB).
-   - Book type selector chips: `Novel`, `Philosophy`, `Academic`, `Business`, `Memoir`, `Spiritual`, `Children's`, `Other`.
-   - Real-time client & server validation (magic bytes, empty file check, page count estimation).
-
-3. **`/templates` (Step 2: Choose Personality)**
-   - Visual specimen cards for 5 curated publishing styles:
-     - **Classic**: *Timeless Literary* (Garamond, elegant drop caps, classic running headers)
-     - **Modern**: *Clean Minimal* (Crisp sans/serif blend, generous whitespace, asymmetrical titles)
-     - **Philosophy**: *Spacious Contemplative* (Wide margins, subtle section markers, refined proportion)
-     - **Academic**: *Structured Scholarly* (Rigorous hierarchy, footnote-friendly, formal folios)
-     - **Literary**: *Elegant Bookstore* (Deep typography, deckle-edge feel, poetic rhythm)
-
-4. **`/settings` (Step 3: Format & Specifications)**
-   - **Simple Mode (Default, 90% of authors)**: Selected style, book type, and physical trim size:
-     - `5″ × 8″` (Pocket / Fiction / Poetry)
-     - `5.5″ × 8.5″` (Trade Paperback / Memoirs)
-     - `6″ × 9″` (Standard Publishing / Most Popular)
-     - `8.5″ × 11″` (Manuals / Large Format)
-   - **Advanced Controls (Collapsed by default)**: Inside gutter (mm), outside margin (mm), top/bottom margins, font family, font size, line height, running headers, recto chapter openings, and 0.125″ outer bleed.
-
-5. **`/create` (Step 4: Real-time Typesetting Checklist)**
-   - Live checklist tracking the 8 essential stages:
-     1. Manuscript analyzed
-     2. Chapters detected
-     3. Typography applied
-     4. Layout generated
-     5. Pagination optimized
-     6. Images checked
-     7. Print margins checked
-     8. Final PDF generated
-
-6. **`/ready` (Step 5: Finished Book Download)**
-   - Book specification card showing verified trim size, page count, and PDF/X compliance badge.
-   - Primary Action: **Download Print-Ready PDF** (`/api/jobs/[id]/download`).
-   - Secondary Action: **Email me the book** (logged to `EmailLog`).
+Pull requests and pushes to `main` run the CI workflow with PostgreSQL migrations, typechecking, the full Vitest suite, and both production bundles.
 
 ---
 
-## 🔑 Environment Variables (`.env`)
+## User Journey
 
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@localhost:5432/manuscript_book_out?schema=public` |
-| `REDIS_URL` | Redis connection for BullMQ | `redis://localhost:6379` |
-| `S3_ENDPOINT` | S3/MinIO API endpoint | `http://localhost:9000` |
-| `S3_ACCESS_KEY` | MinIO root user / S3 access key | `minioadmin` |
-| `S3_SECRET_KEY` | MinIO root password / S3 secret key | `minioadmin` |
-| `S3_BUCKET_NAME` | Primary manuscript bucket | `manuscripts` |
-| `STORAGE_FALLBACK_DIR` | Local disk folder if S3 offline | `./storage` |
-| `NEXTAUTH_URL` | Base URL for auth callbacks | `http://localhost:3000` |
-| `NEXTAUTH_SECRET` | Secret key for session encryption | `development-secret-key-at-least-32-chars-long` |
-| `RAZORPAY_KEY_ID` | Razorpay key ID for payments | `rzp_test_...` |
-| `RAZORPAY_KEY_SECRET` | Razorpay key secret | `...` |
-| `RAZORPAY_WEBHOOK_SECRET` | Razorpay webhook signing secret | `...` |
-| `RESEND_API_KEY` | Resend API key for transactional emails | `re_...` |
-| `EMAIL_FROM` | Sender address for book deliveries | `books@manuscriptinbookout.com` |
-| `TYPESETTING_ENGINE`| Committed typesetting engine | `typst` |
-| `OPENAI_COMPATIBLE_BASE_URL` | LLM endpoint for structure parsing | `https://api.openai.com/v1` |
-| `OPENAI_API_KEY` | API key for AI structure extraction | `sk-...` |
+1. **`/`** — landing page (out of scope of the typesetting audit).
+2. **`/upload`** — `.docx`/`.pdf` up to 50 MB; magic-byte validation, page-count estimation, book-type chips.
+3. **`/templates`** — style picker. Six styles exist in the engine; **Classic** and **Modern** are offered for new books at launch (the other four still render for existing jobs).
+4. **`/settings`** — trim size (`5×8`, `5.5×8.5`, `6×9`, `8.5×11`) plus collapsed advanced controls. Advanced fields are **per-template overrides** (NULL = template default); switching template clears stale overrides. Changing settings on an already-rendered book triggers a re-render and invalidates stale cover/EPUB artifacts.
+5. **`/create`** — live 8-step checklist while the worker typesets.
+6. **`/cover`** — Cover Studio: presets, ornaments, palette, typography; live SVG preview with trim/bleed/spine/barcode guides; KDP-accurate spine width from the *real* interior page count; ISBN-13 check-digit validation; watermarked free exports, print exports unlocked by purchase.
+7. **`/ready`** — verified spec card, watermarked free preview download, Razorpay checkout, clean PDF + EPUB after payment, email-my-book, share links.
+8. **`/books`** — library dashboard with per-job status and deep links.
 
 ---
 
-## 🔌 Production Wiring
+## The Render Pipeline (worker)
 
-The following are live implementations (no stubs) — they activate as soon as real credentials are configured:
+`src/lib/queue/worker.ts` → `src/lib/renderer/publication-renderer.ts`:
 
-1. **Typst Engine Core (`src/lib/renderer/typst/`)**:
-   - Compiles parsed manuscript structure (`BookStructureJSON`) into `.typ` markup.
-   - Invokes the bundled `bin/typst` binary to produce the physical PDF interior with embedded open-license fonts.
-2. **Manuscript Analyzer (`src/lib/ai/analyzer.ts`)**:
-   - Parses DOCX/PDF locally (mammoth + pdf-parse); optionally enhances title/author/type detection via `OPENAI_COMPATIBLE_BASE_URL` when `OPENAI_API_KEY` is set.
-3. **Razorpay Checkout (`src/app/api/checkout/razorpay/route.ts` + `src/app/api/webhooks/razorpay/route.ts`)**:
-   - `POST /api/checkout/razorpay` creates a Razorpay order (₹2,450 per interior) for a ready job; the page opens the Razorpay modal.
-   - `POST /api/checkout/razorpay/verify` verifies the payment signature (HMAC-SHA256 of `order_id|payment_id`) and marks `Payment.status = "paid"` — unlocking even without a registered webhook.
-   - `POST /api/webhooks/razorpay` is the belt-and-suspenders path: verifies `x-razorpay-signature` and flips `payment.captured`/`payment.failed`.
-   - Requires `RAZORPAY_KEY_ID` + `RAZORPAY_KEY_SECRET` (+ `RAZORPAY_WEBHOOK_SECRET` for the webhook).
-4. **Resend Email (`src/lib/email/resend.ts`)**:
-   - Delivers magic-link sign-in emails and "your book is ready" notifications once `RESEND_API_KEY` is set.
-   - In dev without a key, sign-in returns a `devLink` so the flow stays testable.
-5. **Auth (`src/app/api/auth/[...nextauth]/route.ts`)**:
-   - Magic links are single-use, 15-minute, SHA-256-hashed tokens (`VerificationToken` table).
-   - Google OAuth activates automatically when `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are configured (register redirect URI `${NEXT_PUBLIC_APP_URL}/api/auth/google/callback`).
+1. Analyze manuscript → `BookStructureV1`
+2. Verify renderable content
+3. Resolve template defaults + user overrides → Typst source
+4. Compile with `bin/typst` and bundled open-license fonts
+5. Verify embedded images
+6. **Print QA** (`src/lib/renderer/qa.ts`): PDF magic, KDP 24-page minimum, page-count-dependent inside-gutter minimum, all-page physical dimensions vs. trim+bleed, font embedding, extractable text, minimum readable text
+7. Pad to a multiple of 4 pages (signature alignment) — never below 24
+8. Preview PNGs
+9. EPUB 3 generation
+10. Upload artifacts → `ready`
 
-## 🚢 Deploy Checklist
+**Typographic craft** (verified by tests, not just claimed): chapters open on recto pages, running heads alternate title/chapter, front-matter roman folios stay in order, blank filler pages carry no headers/folios, small caps are synthesized for fonts without `smcp`, and Typst keeps ≥2 paragraph lines together at page breaks.
 
-- Run `npx prisma db push` against the production Postgres (creates all tables incl. `verification_tokens`).
-- Set real `DATABASE_URL`, `REDIS_URL`, `NEXTAUTH_SECRET`, `NEXT_PUBLIC_APP_URL`, `RESEND_API_KEY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`.
-- In production the in-memory DB fallback is **disabled** — Postgres must be reachable.
-- Recommended: run via `docker compose up` (includes Postgres, Redis, MinIO).
+**Bleed** is fixed at KDP's 0.125″ on the outside edge + top/bottom; margins are compensated so the text block never moves. Other bleed values are ignored — KDP rejects them.
+
+---
+
+## The Cover Studio
+
+- **Geometry**: `trim + 0.125″ bleed` panels + spine from the job's *rendered* page count (`qaReports.pageCount`) and chosen paper stock (cream 0.0025″/page, white 0.002252″/page). The browser-posted page count is never trusted.
+- **Content hygiene**: no invented blurb/bio/ISBN/publisher is ever printed; legacy placeholder values are stripped from saved configs and rejected on save.
+- **KDP barcode area**: bottom-right of the back cover stays clear; a valid ISBN-13 prints as text, an invalid one warns and is omitted.
+- **Fit & warnings**: author/spine text shrink-to-fit or drop with a visible warning; blurb/bio truncation is flagged live in the studio.
+- **Exports**: the browser rasterizes the preview SVG (fonts embedded as data URIs) → JPEG inside a correctly-sized PDF, plus PNG and Kindle JPG. Saves stay under a 3.8 MB budget for host upload limits. The server validates every upload (magic bytes, single page, physical size vs. real trim+spine).
+- **Paywall**: print exports need a paid job; the free SVG is watermarked (`data-watermark`).
+- **Server fallback** (`src/lib/cover/pdf-fallback.ts`): embeds the same bundled TTFs (incl. Devanagari/Tamil/Malayalam), used only when the client can't rasterize.
+
+---
+
+## Production Topology
+
+| Piece | Where | Notes |
+|---|---|---|
+| Web app | Next.js (Dockerfile / Vercel) | `RACANA_EMBEDDED_WORKER=false` when a dedicated worker exists |
+| Worker | Fly.io (`Dockerfile.worker`, `fly.toml`) | Runs `node dist/worker.cjs` (esbuild bundle, Node 20); `/health` returns 503 when Redis is down; 1 GB memory |
+| Postgres | managed | `prisma migrate deploy` on release |
+| Redis | managed | BullMQ; worker retries reconnects forever in production |
+| S3 | managed | local-disk fallback in dev |
+
+---
+
+## Environment Variables
+
+| Variable | Description |
+| :--- | :--- |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `REDIS_URL` | Redis connection for BullMQ |
+| `S3_ENDPOINT` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_BUCKET_NAME` | Object storage |
+| `STORAGE_FALLBACK_DIR` | Local disk folder if S3 is unreachable |
+| `NEXTAUTH_URL` / `NEXTAUTH_SECRET` | Auth base URL + session secret |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional Google OAuth |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET` | Payments |
+| `RESEND_API_KEY` / `EMAIL_FROM` | Transactional email |
+| `TYPESETTING_ENGINE` | `typst` (locked) |
+| `RACANA_EMBEDDED_WORKER` | `false` on web when a dedicated worker runs |
+| `OPENAI_COMPATIBLE_BASE_URL` / `OPENAI_API_KEY` | Optional LLM-enhanced structure detection |
+
+---
+
+## Deploy Checklist
+
+1. `prisma migrate deploy` against production Postgres (includes the nullable-style-overrides migration).
+2. Set all env vars above; set `RACANA_EMBEDDED_WORKER=false` on the web service.
+3. Deploy the worker image (`Dockerfile.worker`) — it bundles `dist/worker.cjs`, Node 20, Typst binary, fonts and templates; the build fails loudly if templates are missing.
+4. Configure `S3_ENDPOINT`, `S3_ACCESS_KEY`, and `S3_SECRET_KEY` on both web and worker services; production startup fails closed without them.
+5. Confirm `GET /api/health` returns HTTP 200 (Postgres, Redis, and both S3 buckets ready) and the worker health endpoint reports ready before pointing users at it.
+6. Commit state matters: the `.typ` templates must be pushed — fresh clones/deploys have no templates otherwise.

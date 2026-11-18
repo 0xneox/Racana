@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { validateManuscript } from "@/lib/manuscript/validator";
+import { MAX_FILE_SIZE_BYTES, validateManuscript } from "@/lib/manuscript/validator";
 import { uploadToStorage } from "@/lib/storage/s3";
 import { JobStatus } from "@prisma/client";
 import crypto from "crypto";
 import { GENERIC_INTERNAL_ERROR, logServerError, requireIdentity, requireJobOwner } from "@/lib/auth-utils";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
 import { addJobToQueue } from "@/lib/queue/queue";
+import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/http/body-limit";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_MANUSCRIPT_REQUEST_BYTES = MAX_FILE_SIZE_BYTES + 1024 * 1024;
 
 export async function POST(
   request: NextRequest,
@@ -68,7 +70,7 @@ export async function POST(
       }
     }
 
-    const formData = await request.formData();
+    const formData = await parseFormDataWithinLimit(request, MAX_MANUSCRIPT_REQUEST_BYTES);
     const file = formData.get("file") as File | null;
     if (!file) {
       return NextResponse.json(
@@ -77,8 +79,11 @@ export async function POST(
       );
     }
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json({ error: "File exceeds 50MB limit. Please compress or optimize images." }, { status: 413 });
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
 
     const validation = validateManuscript(buffer, file.name, file.type);
     if (!validation.valid) {
@@ -146,7 +151,19 @@ export async function POST(
     });
 
     if (!dispatch.success) {
-      logServerError("Replace Manuscript Queue Dispatch", new Error("Queue dispatch failed for job " + job.id));
+      logServerError("Replace Manuscript Queue Dispatch", new Error(dispatch.error || "Queue dispatch failed for job " + job.id));
+      await prisma.bookJob.updateMany({
+        where: { id: job.id, status: JobStatus.queued },
+        data: {
+          status: JobStatus.failed,
+          currentStep: "Could not queue revised book generation",
+          errorMessage: "Your revision was saved, but generation could not start. Please try again.",
+        },
+      });
+      return NextResponse.json(
+        { error: "Your revision was saved, but generation could not start. Please try again." },
+        { status: 503 }
+      );
     }
 
     return NextResponse.json({
@@ -158,6 +175,9 @@ export async function POST(
       message: "Revised manuscript uploaded. Re-generating your book interior...",
     });
   } catch (err) {
+    if (err instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "Request exceeds the 51MB upload limit." }, { status: 413 });
+    }
     logServerError("Replace Manuscript API", err);
     return NextResponse.json(
       { error: GENERIC_INTERNAL_ERROR },

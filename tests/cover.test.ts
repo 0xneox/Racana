@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { generateCoverSvg, generateCoverPdf, COVER_PRESETS, spineWidthPx } from "../src/lib/cover/generator";
+import { generateCoverSvg, COVER_PRESETS, spineWidthPx } from "../src/lib/cover/generator";
+import { generateCoverPdf } from "../src/lib/cover/pdf-fallback";
 
 describe("Cover Page Studio Generator", () => {
   it("provides rich curated presets with Indian & classical aesthetics", () => {

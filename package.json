@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3005",
+    "dev": "next dev -p 3005 -H 0.0.0.0",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
@@ -12,12 +12,14 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "node --loader ts-node/esm prisma/seed.ts",
-    "worker": "node --loader ts-node/esm scripts/worker.ts",
+    "build:worker": "esbuild scripts/worker.ts --bundle --platform=node --target=node20 --format=cjs --packages=external --outfile=dist/worker.cjs",
+    "worker": "npm run build:worker && node dist/worker.cjs",
     "test": "vitest run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.670.0",
     "@aws-sdk/s3-request-presigner": "^3.670.0",
+    "@pdf-lib/fontkit": "^1.1.1",
     "@prisma/client": "^5.20.0",
     "bullmq": "^5.21.0",
     "clsx": "^2.1.1",
@@ -35,6 +37,7 @@
     "razorpay": "^2.9.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "regenerator-runtime": "^0.14.1",
     "resend": "^6.28.1",
     "tailwind-merge": "^2.5.4",
     "zod": "^4.6.5"
@@ -44,6 +47,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.19",
+    "esbuild": "0.21.5",
     "postcss": "^8.4.38",
     "prisma": "^5.20.0",
     "tailwindcss": "^3.4.4",

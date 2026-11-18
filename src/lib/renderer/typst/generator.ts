@@ -82,6 +82,22 @@ function inlineText(text: string): string {
     .replace(/\b(Ch|ch|p|pp|Fig|fig|No|no|Vol|vol|Sec|sec)\. (\d)/g, "$1.~$2");
 }
 
+// Small capitals from plain text.  None of the bundled fonts carry an
+// OpenType `smcp` feature and Typst 0.11's `smallcaps` does not synthesize
+// them (it silently prints lowercase), so they are built the classic way:
+// capitals stay full height, lowercase runs become capitals at a reduced
+// size, with a touch of tracking.  Ends with `;` like every embedded call so
+// a following "." or "(" is never parsed as a method/call.
+function smallCaps(plain: string, sizeEm = 0.8): string {
+  // Text typed in all capitals has no lowercase runs — set it all small.
+  if (!/\p{Ll}/u.test(plain)) return `#text(size: ${sizeEm}em, tracking: 0.05em)[${inlineText(plain)}];`;
+  const body = plain
+    .split(/(\p{Ll}+)/u)
+    .map((run, i) => (i % 2 ? `#text(size: ${sizeEm}em)[#upper[${escapeTypst(run)}]];` : inlineText(run)))
+    .join("");
+  return `#text(tracking: 0.05em)[${body}];`;
+}
+
 // Inline bold / italic / footnote refs from the block's `rich` string.  Every
 // embedded call ends with `;` so a following "." or "(" can never be parsed
 // as field access or call arguments on the content value.
@@ -251,7 +267,7 @@ ${items.join(",\n")}
   #block(inset: (x: 2em))[
     #text(style: "italic")[${quote}]
     #v(0.35em)
-    #smallcaps[#text(size: 0.9em)[${inlineText(attr)}]]
+    ${smallCaps(attr, 0.78)}
   ]
 ]\n\n`;
       }
@@ -420,6 +436,13 @@ function brandDomain(): string {
   return (process.env.BRAND_DOMAIN || "racana.pro").trim() || "racana.pro";
 }
 
+// KDP and IngramSpark both fix interior bleed at 0.125″; any other value is
+// rejected at upload, so a custom bleedSizeMm is never honoured.
+export const INTERIOR_BLEED_MM = 3.175;
+export function interiorBleedMm(settings: Pick<EffectiveSettings, "layout">): number {
+  return settings.layout?.bleedEnabled ? INTERIOR_BLEED_MM : 0;
+}
+
 const TRIM_HEIGHT_IN: Record<string, number> = {
   "5x8": 8,
   "5.5x8.5": 8.5,
@@ -489,7 +512,7 @@ export function generateTypstSource(options: RendererOptions): { source: string;
   source += `  quoteFontSizeEm: ${settings.quote.fontSizeAdjustEm ?? 0.95},\n`;
   source += `  quoteItalic: ${settings.quote.italic === false ? "false" : "true"},\n`;
   source += `  chapterStyle: "${chapterStyle}",\n`;
-  const bleedMm = settings.layout.bleedEnabled ? (settings.layout.bleedMm || 3.175) : 0;
+  const bleedMm = interiorBleedMm(settings);
   if (bleedMm > 0) source += `  bleedMm: ${bleedMm},\n`;
   // The author's own copyright text is passed as markup content (not a
   // string) so `smartquote` converts its quotes/apostrophes properly.
@@ -526,14 +549,14 @@ export function generateTypstSource(options: RendererOptions): { source: string;
       const first = tokens[0];
       if (lead && first?.kind === "text" && !first.bold && !first.italic && first.text.startsWith(lead)) {
         const rest = [{ ...first, text: first.text.slice(lead.length) }, ...tokens.slice(1)];
-        return `#par(first-line-indent: 0pt)[#smallcaps[${escapeTypst(lead)}]${renderTokens(rest, block.notes)}]\n\n`;
+        return `#par(first-line-indent: 0pt)[${smallCaps(lead)}${renderTokens(rest, block.notes)}]\n\n`;
       }
       return `#par(first-line-indent: 0pt)[${renderTokens(tokens, block.notes)}]\n\n`;
     }
     const notes = orphanNotes(block.notes);
     if (!lead) return `#par(first-line-indent: 0pt)[${inlineText(text)}${notes}]\n\n`;
     const rest = text.slice(lead.length);
-    return `#par(first-line-indent: 0pt)[#smallcaps[${escapeTypst(lead)}]${inlineText(rest)}${notes}]\n\n`;
+    return `#par(first-line-indent: 0pt)[${smallCaps(lead)}${inlineText(rest)}${notes}]\n\n`;
   };
 
   // Render a block list; paragraphs that follow a heading lose their
@@ -570,16 +593,10 @@ export function generateTypstSource(options: RendererOptions): { source: string;
   const metaLines = new Set([title, subtitle, author].filter(Boolean).map(normalizeLine));
 
   const displayEntries: string[] = [];
+  // Front-matter text sections, without their opening call: whether a
+  // section restarts the roman folios depends on the order they are emitted
+  // in (ToC first), not the order they are collected in.
   const textEntries: string[] = [];
-  // The first numbered front-matter page gets folio "i" — roman folios start
-  // there, not at the half-title.  Display pages (epigraphs, dedication)
-  // carry no folio and don't consume it.
-  let romanStarted = false;
-  const frontTextBegin = () => {
-    const reset = !romanStarted;
-    romanStarted = true;
-    return `#begin-front-text(reset: ${reset})`;
-  };
 
   // Epigraphs grouped on a single display page (the conventional treatment
   // when there are a handful — e.g. this fixture's three opening quotes).
@@ -613,7 +630,7 @@ export function generateTypstSource(options: RendererOptions): { source: string;
           `#begin-display-page()\n#v(2.2in)\n#align(center)[#block(width: 80%)[#set par(justify: false, first-line-indent: 0pt)\n#set text(style: "italic")\n${rest.map((b) => convertBlock({ ...b, type: b.type === "paragraph" ? "paragraph" : b.type }, ctx)).join("")}]]\n\n`
         );
       } else {
-        textEntries.push(`${frontTextBegin()}\n#v(1in)\n${renderBlocks(rest)}\n`);
+        textEntries.push(`#v(1in)\n${renderBlocks(rest)}\n`);
       }
       continue;
     }
@@ -630,22 +647,26 @@ export function generateTypstSource(options: RendererOptions): { source: string;
     }
 
     flushEpigraphs();
-    let entry = `${frontTextBegin()}\n#v(1in)\n`;
+    let entry = `#v(1in)\n`;
     if (fm.title) entry += sectionHeading(fm.title);
     entry += renderBlocks(fm.blocks) + "\n";
     textEntries.push(entry);
   }
   flushEpigraphs();
 
+  // The first numbered front-matter page gets folio "i" — roman folios start
+  // there, not at the half-title.  Display pages (epigraphs, dedication)
+  // carry no folio and don't consume it.
   source += displayEntries.join("");
   if (wantToc) {
     // The ToC is the first numbered front-matter page (roman i) — placed
     // after the epigraph display pages and before the Note / Preface, and
     // it opens on a recto.  "Practices" gets its own list under the chapters.
-    source += `#book-toc(reset: ${!romanStarted}, headingFont: ${typstFontList(headingFontName)}, bodyFont: ${typstFontList(bodyFontName)}, style: "${chapterStyle}", h1Size: ${settings.heading.h1SizePt}pt)\n\n`;
-    romanStarted = true;
+    source += `#book-toc(reset: true, headingFont: ${typstFontList(headingFontName)}, bodyFont: ${typstFontList(bodyFontName)}, style: "${chapterStyle}", h1Size: ${settings.heading.h1SizePt}pt)\n\n`;
   }
-  source += textEntries.join("");
+  textEntries.forEach((entry, i) => {
+    source += `#begin-front-text(reset: ${!wantToc && i === 0})\n${entry}`;
+  });
 
   // --- Chapters -----------------------------------------------------------
   if (chapters.length > 0) {

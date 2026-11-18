@@ -176,18 +176,19 @@ model BookSettings {
   // Simple Mode settings
   trimSize          TrimSize  @default(trim_6x9)
   
-  // Advanced Mode settings (sensible defaults, 90% never touch)
-  fontBody          String    @default("Garamond")
-  fontHeading       String    @default("Cinzel")
-  fontSizePt        Float     @default(11.0)
-  lineHeight        Float     @default(1.35)
-  marginTopMm       Float     @default(19.05) // 0.75 in
-  marginBottomMm    Float     @default(19.05) // 0.75 in
-  marginInsideMm    Float     @default(22.22) // 0.875 in (gutter)
-  marginOutsideMm   Float     @default(15.87) // 0.625 in
-  pageNumbers       String    @default("bottom_center") // bottom_center, outer_header
-  runningHeaders    Boolean   @default(true)
-  chapterOpenRecto  Boolean   @default(true)
+  // Advanced Mode overrides. NULL = use the chosen template's own value —
+  // a non-null default here would silently override every template.
+  fontBody          String?
+  fontHeading       String?
+  fontSizePt        Float?
+  lineHeight        Float?
+  marginTopMm       Float?
+  marginBottomMm    Float?
+  marginInsideMm    Float?
+  marginOutsideMm   Float?
+  pageNumbers       String?   // bottom_center, outer_header
+  runningHeaders    Boolean?
+  chapterOpenRecto  Boolean?
   bleed             Boolean   @default(false)
   bleedSizeMm       Float     @default(3.175) // 0.125 in
   includeColophon   Boolean   @default(true)  // closing "Typeset by Racana" page

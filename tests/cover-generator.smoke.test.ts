@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   generateCoverSvg,
-  generateCoverPdf,
   spineWidthInches,
   coverPhysicalSize,
   wrapText,
   COVER_PRESETS,
   type CoverDesignConfig,
 } from "../src/lib/cover/generator";
+import { generateCoverPdf } from "../src/lib/cover/pdf-fallback";
 
 const base: CoverDesignConfig = {
   title: "The Very Long Title of an Indian Literary Novel About Rivers and Time",
@@ -23,8 +23,8 @@ const base: CoverDesignConfig = {
   spineText: "Rivers and Time",
   backBlurb: "A luminous tale woven with depth. ".repeat(20),
   aboutAuthor: "Aryavrat Varma is a novelist and historian.",
-  isbn: "978-93-89000-01-2",
-  publisher: "Racana Books",
+  isbn: "978-0-306-40615-7",
+  publisher: "Aryavrat Press",
 };
 
 describe("cover generator", () => {
@@ -36,7 +36,7 @@ describe("cover generator", () => {
         expect(svg.endsWith("</svg>")).toBe(true);
         expect(svg).toContain("ARYAVRAT VARMA".slice(0, 8));
         if (format === "paperback") expect(svg).toContain("SPINE");
-        if (format === "paperback") expect(svg).toContain("ISBN 978-93-89000-01-2");
+        if (format === "paperback") expect(svg).toContain("ISBN 978-0-306-40615-7");
       });
     }
   }

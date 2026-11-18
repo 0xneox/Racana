@@ -74,7 +74,9 @@ export async function POST(request: NextRequest) {
         const dbPayment = await prisma.payment.findUnique({
           where: { razorpayOrderId: payment.order_id },
         });
-        if (dbPayment) {
+        // A later failed attempt on the same order must not lock a captured
+        // payment — the author already paid and the files must stay unlocked.
+        if (dbPayment && dbPayment.status !== "paid") {
           await prisma.payment.update({
             where: { razorpayOrderId: payment.order_id },
             data: { status: "failed" },

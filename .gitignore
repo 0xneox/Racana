@@ -63,6 +63,8 @@ $RECYCLE.BIN/
 
 # --- Typst / PDF local runs (we store in S3, never git) ---
 *.typ
+# The book templates are source code — the renderer cannot run without them.
+!src/lib/renderer/typst/templates/*.typ
 *.pdf
 /.audit-out/
 *.aux

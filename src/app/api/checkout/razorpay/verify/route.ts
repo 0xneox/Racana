@@ -49,6 +49,9 @@ export async function POST(request: NextRequest) {
     if (!payment) {
       return NextResponse.json({ error: "Payment not found." }, { status: 404 });
     }
+    if (payment.jobId && payment.jobId !== jobId) {
+      return NextResponse.json({ error: "Payment does not match this book." }, { status: 400 });
+    }
     if (payment.status !== "paid") {
       await prisma.payment.update({
         where: { razorpayOrderId: razorpay_order_id },

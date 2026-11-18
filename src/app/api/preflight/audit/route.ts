@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeManuscript } from "@/lib/ai/analyzer";
 import { runPreflight } from "@/lib/renderer/preflight";
-import { validateManuscript } from "@/lib/manuscript/validator";
+import { MAX_FILE_SIZE_BYTES, validateManuscript } from "@/lib/manuscript/validator";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
 import { logServerError } from "@/lib/auth-utils";
+import { parseFormDataWithinLimit, readBodyWithinLimit, RequestBodyTooLargeError } from "@/lib/http/body-limit";
 import type { BookStructureV1, Block } from "@/lib/manuscript/types";
 
 export async function POST(request: NextRequest) {
@@ -23,14 +24,16 @@ export async function POST(request: NextRequest) {
     const contentType = request.headers.get("content-type") || "";
 
     if (contentType.includes("multipart/form-data")) {
-      const formData = await request.formData();
+      const formData = await parseFormDataWithinLimit(request, MAX_FILE_SIZE_BYTES + 1024 * 1024);
       const file = formData.get("file") as File | null;
       const text = formData.get("text") as string | null;
 
       if (file) {
         fileName = file.name;
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+          return NextResponse.json({ error: "File exceeds 50MB limit. Please compress or optimize images." }, { status: 413 });
+        }
+        const buffer = Buffer.from(await file.arrayBuffer());
 
         const validation = validateManuscript(buffer, file.name, file.type);
         if (!validation.valid) {
@@ -47,15 +50,25 @@ export async function POST(request: NextRequest) {
         );
       }
     } else {
-      const body = await request.json().catch(() => ({}));
-      const text = (body.text as string) || "";
+      const bodyBytes = await readBodyWithinLimit(request, MAX_FILE_SIZE_BYTES + 1024 * 1024);
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(Buffer.from(bodyBytes).toString("utf8"));
+      } catch {
+        body = {};
+      }
+      const text = typeof body.text === "string" ? body.text : "";
       if (!text.trim()) {
         return NextResponse.json(
           { error: "No manuscript text provided." },
           { status: 400 }
         );
       }
-      structure = buildStructureFromText(text, body.title, body.author);
+      structure = buildStructureFromText(
+        text,
+        typeof body.title === "string" ? body.title : undefined,
+        typeof body.author === "string" ? body.author : undefined
+      );
     }
 
     const preflight = runPreflight(structure);
@@ -112,6 +125,9 @@ export async function POST(request: NextRequest) {
       preflight,
     });
   } catch (err) {
+    if (err instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "Request exceeds the 51MB analysis limit." }, { status: 413 });
+    }
     logServerError("Preflight Audit API", err);
     return NextResponse.json(
       { error: "Could not analyze manuscript. Please check file format." },

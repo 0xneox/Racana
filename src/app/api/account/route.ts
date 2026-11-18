@@ -18,18 +18,26 @@ export async function DELETE(request: NextRequest) {
       where: { userId: user!.id },
       select: { id: true },
     });
+    let cleanupFailed = false;
     for (const job of jobs) {
       try {
         await deleteJobEverywhere(job.id);
       } catch (jobErr) {
         logServerError("Account DELETE job cleanup", jobErr);
+        cleanupFailed = true;
       }
+    }
+    if (cleanupFailed) {
+      return NextResponse.json(
+        { error: "Account deletion could not be completed. Please retry; your account remains active." },
+        { status: 503 }
+      );
     }
 
     // Sessions cascade with the user row; payments/email logs SetNull.
     await prisma.user.delete({ where: { id: user!.id } });
 
-    await revokeSessionToken(request.cookies.get(SESSION_COOKIE_NAME)?.value).catch(() => {});
+    await revokeSessionToken(request.cookies.get(SESSION_COOKIE_NAME)?.value);
     const response = NextResponse.json({ success: true });
     response.cookies.delete(SESSION_COOKIE_NAME);
     return response;

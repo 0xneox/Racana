@@ -140,6 +140,7 @@ export async function runAnalysisTask(jobId: string): Promise<void> {
           status: JobStatus.failed,
           currentStep: "Manuscript analysis failed",
           errorMessage:
+            (err as Error)?.message ||
             "We couldn't read the structure of this file. Try re-exporting your manuscript as .docx and uploading again.",
         },
       })
@@ -261,6 +262,7 @@ async function processBookJobInner(jobId: string, pacingMs = 0) {
         );
         return fail(
           "Manuscript analysis failed",
+          (analyzerErr as Error)?.message ||
           "We couldn't read the structure of this file. Try re-exporting your manuscript as .docx and uploading again."
         );
       }
@@ -425,15 +427,15 @@ async function processBookJobInner(jobId: string, pacingMs = 0) {
 
     // EPUB generation (Kindle & Google Play Books ready) — best-effort pre-render
     try {
-      const { generateEpub } = await import("../epub/generator");
+      const { generateEpub, EPUB_GENERATOR_VERSION } = await import("../epub/generator");
       const bookTitle = structure?.detectedTitle || job.manuscriptAsset?.fileName?.replace(/\.[^/.]+$/, "") || "Untitled";
-      const bookAuthor = structure?.detectedAuthor || "Author";
+      const bookAuthor = structure?.detectedAuthor || "";
       const epubBuffer = await generateEpub({
         title: bookTitle,
         author: bookAuthor,
         structure: data,
       });
-      const epubKey = `artifacts/${jobId}/ebook.epub`;
+      const epubKey = `artifacts/${jobId}/ebook-v${EPUB_GENERATOR_VERSION}.epub`;
       await uploadToStorage(epubKey, epubBuffer, "application/epub+zip", "artifacts");
       await prisma.renderArtifact.create({
         data: {

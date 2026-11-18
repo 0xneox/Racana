@@ -37,10 +37,29 @@ export function Book3DPreview({
   const spineWidth = Math.max(18, Math.min(48, Math.round(pageCount * 0.16)));
 
   const coverImageSrc = hasCover
-    ? `/api/jobs/${jobId}/cover?export=svg`
+    ? `/api/jobs/${jobId}/cover?export=svg&format=ebook`
     : previewPages > 0
     ? `/api/jobs/${jobId}/preview/1`
     : null;
+
+  const [coverColors, setCoverColors] = useState<{ primary: string; secondary: string; text: string; subtext: string } | null>(null);
+
+  useEffect(() => {
+    if (!jobId || !hasCover) return;
+    fetch(`/api/jobs/${jobId}/cover`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.config?.palette) {
+          setCoverColors({
+            primary: data.config.palette.primary,
+            secondary: data.config.palette.secondary,
+            text: data.config.palette.textColor,
+            subtext: data.config.palette.subtextColor,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [jobId, hasCover]);
 
   // Mouse drag to rotate 3D book
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -137,7 +156,7 @@ export function Book3DPreview({
     ctx.shadowOffsetY = 40;
 
     // Book cover fill
-    ctx.fillStyle = "#26221F";
+    ctx.fillStyle = coverColors?.primary || "#26221F";
     ctx.beginPath();
     ctx.roundRect(bookX, bookY, bookW, bookH, [8, 16, 16, 8]);
     ctx.fill();
@@ -313,10 +332,11 @@ export function Book3DPreview({
             >
               {/* Front Cover Plate */}
               <div
-                className="absolute inset-0 bg-[#26221F] rounded-r-md shadow-2xl overflow-hidden flex flex-col justify-between p-6 text-white border-y border-r border-[#3E3834]"
+                className="absolute inset-0 rounded-r-md shadow-2xl overflow-hidden flex flex-col justify-between p-6 text-white border-y border-r border-[#3E3834]"
                 style={{
                   transform: `translateZ(${spineWidth / 2}px)`,
                   backfaceVisibility: "hidden",
+                  backgroundColor: coverColors?.primary || "#26221F",
                 }}
               >
                 {coverImageSrc ? (
@@ -328,7 +348,7 @@ export function Book3DPreview({
                   />
                 ) : (
                   <>
-                    <div className="border-b border-[#57534E] pb-3">
+                    <div className="border-b border-white/20 pb-3">
                       <span className="text-[9px] uppercase tracking-widest text-[#A8A29E] block">
                         Racana Edition
                       </span>
@@ -350,29 +370,35 @@ export function Book3DPreview({
 
               {/* Spine Plate */}
               <div
-                className="absolute top-0 bottom-0 bg-[#1C1917] border-y border-[#3E3834] flex items-center justify-center overflow-hidden"
+                className="absolute top-0 bottom-0 border-y border-[#3E3834] flex items-center justify-center overflow-hidden"
                 style={{
                   width: `${spineWidth}px`,
                   left: `-${spineWidth / 2}px`,
                   transform: `rotateY(-90deg) translateZ(${spineWidth / 2}px)`,
+                  backgroundColor: coverColors?.primary || "#1C1917",
                 }}
               >
-                <div className="transform -rotate-90 whitespace-nowrap text-[10px] font-serif text-[#E7E5E4] tracking-wider uppercase font-semibold">
+                <div
+                  className="transform -rotate-90 whitespace-nowrap text-[10px] font-serif tracking-wider uppercase font-semibold"
+                  style={{ color: coverColors?.text || "#E7E5E4" }}
+                >
                   {bookTitle.slice(0, 24)}
                 </div>
               </div>
 
               {/* Back Cover Plate */}
               <div
-                className="absolute inset-0 bg-[#1C1917] rounded-l-md p-6 flex flex-col justify-between text-[#A8A29E] border-y border-l border-[#3E3834]"
+                className="absolute inset-0 rounded-l-md p-6 flex flex-col justify-between border-y border-l border-[#3E3834]"
                 style={{
                   transform: `rotateY(180deg) translateZ(${spineWidth / 2}px)`,
+                  backgroundColor: coverColors?.primary || "#1C1917",
+                  color: coverColors?.subtext || "#A8A29E",
                 }}
               >
-                <p className="text-[10px] leading-relaxed line-clamp-6">
-                  Published with Racana. Formatted to exact Amazon KDP &amp; IngramSpark print specifications.
+                <p className="text-[10px] leading-relaxed line-clamp-6 opacity-90">
+                  Published with Racana. Formatted to exact Amazon KDP &amp; print specifications.
                 </p>
-                <div className="flex items-center justify-between text-[9px] font-mono border-t border-[#292524] pt-2">
+                <div className="flex items-center justify-between text-[9px] font-mono border-t border-white/15 pt-2">
                   <span>{trimSize}</span>
                   <span>{pageCount} pp</span>
                 </div>

@@ -86,7 +86,6 @@ export async function POST(
     // processBookJob concurrently for the same jobId, creating duplicate
     // artifacts and interleaving status writes.
     const processingStates: JobStatus[] = [
-      JobStatus.queued,
       JobStatus.typesetting,
       JobStatus.qa,
       JobStatus.fixing,
@@ -99,14 +98,23 @@ export async function POST(
       );
     }
 
-    await prisma.bookJob.update({
-      where: { id: params.id },
-      data: {
-        status: JobStatus.queued,
-        progress: 5,
-        currentStep: "Queueing book generation",
-      },
-    });
+    if (job.status !== JobStatus.queued) {
+      const claimed = await prisma.bookJob.updateMany({
+        where: { id: params.id, status: job.status },
+        data: {
+          status: JobStatus.queued,
+          progress: 5,
+          currentStep: "Queueing book generation",
+          errorMessage: null,
+        },
+      });
+      if (claimed.count !== 1) {
+        return NextResponse.json(
+          { error: "This book is already being processed. Please wait for it to finish." },
+          { status: 409 }
+        );
+      }
+    }
 
     const dispatch = await addJobToQueue(job.id, {
       task: "render",
@@ -114,9 +122,17 @@ export async function POST(
       trimSize: job.trimSize,
     });
     if (!dispatch.success) {
-      logServerError("Job Start API", new Error("Queue dispatch failed for job " + job.id));
+      logServerError("Job Start API", new Error(dispatch.error || "Queue dispatch failed for job " + job.id));
+      await prisma.bookJob.updateMany({
+        where: { id: job.id, status: JobStatus.queued },
+        data: {
+          status: JobStatus.failed,
+          currentStep: "Could not queue book generation",
+          errorMessage: "We couldn't start generation because the processing queue is unavailable. Please try again.",
+        },
+      });
       return NextResponse.json(
-        { error: "Could not start processing. Please try again." },
+        { error: "Could not start processing because the queue is unavailable. Please try again." },
         { status: 503 }
       );
     }

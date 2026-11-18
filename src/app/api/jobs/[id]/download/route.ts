@@ -64,7 +64,8 @@ export async function GET(
       );
     }
 
-    const fullPaid = isWatermarkFree(job.payments as any[]);
+    const isDevUnlock = process.env.NODE_ENV !== "production" || process.env.DEV_UNLOCK_EXPORTS === "true";
+    const fullPaid = isDevUnlock || isWatermarkFree(job.payments as any[]);
     if (!fullPaid) {
       // Prefer the Typst-rendered preview artifact — its watermark obeys all
       // the page-furniture rules (no marks on blanks, title, copyright or

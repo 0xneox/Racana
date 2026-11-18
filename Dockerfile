@@ -1,7 +1,8 @@
 # Multi-stage Dockerfile for Manuscript In, Book Out
 
-FROM node:18-alpine AS base
-RUN apk add --no-cache libc6-compat curl bash
+# Node 20+: pdfjs-dist 5 (PDF manuscripts, print-QA text check) requires it.
+FROM node:20-alpine AS base
+RUN apk add --no-cache libc6-compat curl bash openssl
 WORKDIR /app
 
 # Dependencies stage
@@ -60,5 +61,5 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 ENV RACANA_ROOT=/app
 
-# Apply migrations then start the standalone server.
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy || echo '[boot] prisma migrate deploy failed — ensure DATABASE_URL is reachable'; node server.js"]
+# Apply migrations then start. A failed migrate must not serve a broken schema.
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node server.js"]

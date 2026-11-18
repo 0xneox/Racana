@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateManuscript } from "@/lib/manuscript/validator";
+import { MAX_FILE_SIZE_BYTES, validateManuscript } from "@/lib/manuscript/validator";
 import { uploadToStorage } from "@/lib/storage/s3";
 import prisma from "@/lib/db";
 import { BookType, JobStatus, TemplateKey, TrimSize } from "@prisma/client";
@@ -7,6 +7,9 @@ import crypto from "crypto";
 import { GENERIC_INTERNAL_ERROR, logServerError, requireIdentity, withGuestCookie } from "@/lib/auth-utils";
 import { getClientIp, rateLimit } from "@/lib/rate-limit";
 import { addJobToQueue } from "@/lib/queue/queue";
+import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/http/body-limit";
+
+const MAX_MANUSCRIPT_REQUEST_BYTES = MAX_FILE_SIZE_BYTES + 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const formData = await request.formData();
+    const formData = await parseFormDataWithinLimit(request, MAX_MANUSCRIPT_REQUEST_BYTES);
     const file = formData.get("file") as File | null;
     const rawBookType = (formData.get("bookType") as string) || "novel";
 
@@ -32,8 +35,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json({ error: "File exceeds 50MB limit. Please compress or optimize images." }, { status: 413 });
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
 
     const validation = validateManuscript(buffer, file.name, file.type);
     if (!validation.valid) {
@@ -120,7 +126,17 @@ export async function POST(request: NextRequest) {
     });
     const dispatch = await addJobToQueue(job.id, { task: "analyze" });
     if (!dispatch.success) {
-      logServerError("Post-upload analysis dispatch", new Error("Queue dispatch failed"));
+      logServerError("Post-upload analysis dispatch", new Error(dispatch.error || "Queue dispatch failed"));
+      // Analysis is repeated by the render worker when structure data is
+      // absent. Keep the upload retryable instead of advertising a stuck job.
+      await prisma.bookJob.update({
+        where: { id: job.id },
+        data: {
+          status: JobStatus.uploaded,
+          currentStep: "Analysis will run when generation starts",
+          errorMessage: null,
+        },
+      });
     }
 
     return withGuestCookie(
@@ -135,6 +151,9 @@ export async function POST(request: NextRequest) {
       identity
     );
   } catch (err) {
+    if (err instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "Request exceeds the 51MB upload limit." }, { status: 413 });
+    }
     logServerError("Upload API", err);
     return NextResponse.json(
       { error: GENERIC_INTERNAL_ERROR },

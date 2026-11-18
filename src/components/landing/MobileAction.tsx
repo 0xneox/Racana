@@ -14,9 +14,9 @@ export function MobileAction() {
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry) setVisible(!entry.isIntersecting);
+        if (entry) setVisible(entry.boundingClientRect.bottom < 0);
       },
-      { threshold: 0.2 }
+      { threshold: [0, 0.2] }
     );
     observer.observe(target);
     return () => observer.disconnect();
@@ -25,6 +25,7 @@ export function MobileAction() {
     <Link
       href="/upload"
       aria-hidden={!visible}
+      tabIndex={visible ? 0 : -1}
       className={`fixed inset-x-4 bottom-4 z-40 flex min-h-14 items-center justify-between rounded-sm bg-primary px-5 text-sm font-bold text-primary-foreground shadow-lift transition-all duration-300 md:hidden ${
         visible
           ? "translate-y-0 opacity-100"

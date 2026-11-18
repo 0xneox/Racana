@@ -20,12 +20,12 @@
     "eyebrow": "Book interior typesetting",
     "titleA": "Your manuscript in.",
     "titleB": "Your finished book out.",
-    "subtitle": "Upload your DOCX or PDF, choose a style, and Racana turns it into a print-ready interior, a cover design, and an EPUB, sized for KDP, Pothi, and IngramSpark.",
+    "subtitle": "Upload an English DOCX or text-based PDF, choose a style, and Racana turns it into a print-ready interior, a cover design, and an EPUB.",
     "ctaPrimary": "Start your book",
     "ctaSecondary": "See a real before → after",
     "trustFreePreview": "Free watermarked preview",
     "trustSpeed": "Typeset in minutes",
-    "trustScripts": "Devanagari, Tamil & Malayalam built in",
+    "trustScripts": "English manuscripts supported at launch",
     "priceLead": "₹2,450 per finished book",
     "priceUsd": "≈ $29",
     "priceNoSubs": "No subscription"
@@ -48,7 +48,7 @@
     "label": "The method",
     "heading": "Three steps. That's it.",
     "s1Title": "Upload",
-    "s1Sub": "DOCX or PDF. Your words stay exactly as you wrote them.",
+    "s1Sub": "English DOCX or text-based PDF. Your words stay exactly as you wrote them.",
     "s2Title": "Choose",
     "s2Sub": "Classic or Modern.",
     "s3Title": "Preview & publish",
@@ -112,8 +112,8 @@
     "a2Desc": "Consistent interiors across your catalogue.",
     "a3Title": "Researchers & academics",
     "a3Desc": "Structured manuscripts with proper hierarchy and folios.",
-    "a4Title": "Indian-language authors",
-    "a4Desc": "Devanagari (Hindi, Marathi, Sanskrit), Tamil, and Malayalam, with correct script rendering."
+    "a4Title": "English-language authors",
+    "a4Desc": "Clear, professional typesetting for English-language manuscripts."
   },
   "Printers": {
     "label": "Printers",
@@ -144,7 +144,7 @@
     "label": "FAQ",
     "heading": "Questions authors usually ask.",
     "q1": "What files can I upload? What about images, tables, and footnotes?",
-    "a1": "DOCX or PDF, up to 50 MB (5 to 300 pages). DOCX gives the best results: headings, lists, footnotes, tables, and inline images carry over with their structure. PDF support is in beta: text-based PDFs work, scanned or image-only PDFs don't, and footnotes, tables, and images inside a PDF may not be detected reliably.",
+    "a1": "DOCX or text-based PDF, up to 50 MB (5 to 300 pages). DOCX gives the best results: headings, lists, footnotes, tables, and inline images carry over with their structure. Scanned or image-only PDFs are not supported, and footnotes, tables, and images inside a PDF may not be detected reliably.",
     "q2": "Will Racana change my writing?",
     "a2": "No. Racana is a formatting and typesetting tool. It does not rewrite, summarize, edit, or alter the text of your manuscript. Your words go in, and the same words come out — given a finished physical form.",
     "q3": "Can I see the result before paying?",
@@ -154,7 +154,7 @@
     "q5": "Is my manuscript private?",
     "a5": "Your files sit on encrypted storage and are used only to build your book. Raw manuscripts are kept for 30 days so you can re-download and revise, then deleted. If AI-assisted structure detection is enabled on our servers, a short opening excerpt (up to ~8,000 characters) is processed by the configured language-model endpoint solely to detect title, author and chapter metadata. We never edit your text, train models on it, or sell it. Email books@racana.pro to have your files deleted sooner.",
     "q6": "What languages are supported?",
-    "a6": "English, plus Devanagari (Hindi, Marathi, Sanskrit), Tamil, and Malayalam, with the fonts embedded in your PDF. Mixed-script manuscripts work: each script picks up the right font automatically. Other Indic scripts, including Bengali, aren't supported for print yet.",
+    "a6": "English manuscripts are supported at launch. Additional manuscript languages may be added later; the final print and eBook files should always be reviewed before publishing.",
     "q7": "Does Racana design my book cover and create eBooks?",
     "a7": "Yes. Every paid book includes Cover Studio, which produces a print cover PDF with the spine width calculated from your page count, plus an EPUB 3 export for Kindle and Google Play Books.",
     "q8": "Can I re-generate after fixing a typo?",
@@ -167,12 +167,12 @@
     "subCta": "Free watermarked preview · ₹2,450 to unlock clean PDF, cover & EPUB"
   },
   "StructuredData": {
-    "description": "Racana is a web-based book interior typesetting service for Indian independent authors. Upload DOCX or PDF, choose Classic or Modern style, and receive a print-ready interior PDF, cover design, and EPUB 3 export with native Devanagari, Tamil, and Malayalam rendering.",
-    "keywords": "book formatting,book typesetting,interior design,print on demand,self publishing,India,KDP,Pothi,IngramSpark,Malayalam,Tamil,Devanagari,Hindi,EPUB,cover design",
-    "features": "DOCX upload|PDF upload (beta)|Classic & Modern templates|Trim size presets|Binding-aware gutters|Running heads|Folios|Dropcap chapter openings|EPUB 3 export|KDP cover design|Automated print checks|Devanagari support|Tamil support|Malayalam support|Unlimited re-downloads|Unlimited re-renders"
+    "description": "Racana is a web-based book interior typesetting service for independent authors. Upload an English DOCX or text-based PDF, choose Classic or Modern style, and receive a print-ready interior PDF, cover design, and EPUB 3 export.",
+    "keywords": "book formatting,book typesetting,interior design,print on demand,self publishing,India,KDP,Pothi,IngramSpark,English manuscript,EPUB,cover design",
+    "features": "DOCX upload|Text-based PDF upload|Classic & Modern templates|Trim size presets|Binding-aware gutters|Running heads|Folios|Dropcap chapter openings|EPUB 3 export|KDP cover design|Automated print checks|Unlimited re-downloads|Unlimited re-renders"
   },
   "Footer": {
-    "tagline": "Book interior publisher for Indian authors.",
+    "tagline": "Book interior typesetting for English-language authors.",
     "product": "Product",
     "resources": "Resources",
     "legal": "Legal",
@@ -226,7 +226,7 @@
     "typeOther": "Other",
     "dropTitle": "Click to upload",
     "dropOr": "or drag and drop",
-    "dropHint": "Microsoft Word (.docx) or PDF (beta) • Up to 50MB (5 to 300 pages)",
+    "dropHint": "Microsoft Word (.docx) or text-based PDF • Up to 50MB (5 to 300 pages)",
     "fileReady": "Ready for structure analysis",
     "fileReplace": "Click or drop another file to replace",
     "submit": "Continue to Choose Book Style",
@@ -237,7 +237,7 @@
     "errSize": "File exceeds maximum allowed size of 50MB.",
     "errNoFile": "Please select a DOCX or PDF manuscript first.",
     "errFailed": "Failed to upload manuscript.",
-    "dropIndic": "Hindi & Devanagari, Tamil, and Malayalam manuscripts fully supported"
+    "dropIndic": "English manuscripts supported at launch"
   },
   "ProgressBar": {
     "step1": "Upload",
@@ -427,7 +427,7 @@
     "rectoLabel": "Recto (Right)",
     "anyPageLabel": "Any page",
     "downloadEpub": "Download eBook (.epub)",
-    "epubReady": "Kindle & Google Play Ready",
+    "epubReady": "EPUB 3 export",
     "epubSubtitle": "Fully validated EPUB 3.0 file with reflowable typography and table of contents.",
     "coverStudioTitle": "Book Cover Studio",
     "coverStudioSub": "Design a print-ready paperback wrap or digital eBook cover with cultural motifs.",
@@ -499,9 +499,9 @@
   },
   "Meta": {
     "title": "Racana — Book Interior Typesetting",
-    "description": "Turn your DOCX or PDF manuscript into a print-ready book interior, cover, and EPUB. Free watermarked preview, then ₹2,450 per finished book.",
-    "ogTitle": "Racana — Your manuscript in. Your finished book out.",
-    "ogDescription": "Professional book interior typesetting for independent authors. Preview free, then create your print-ready PDF for ₹2,450."
+    "description": "Turn your English DOCX or text-based PDF manuscript into a print-ready book interior, cover, and EPUB. Free watermarked preview, then ₹2,450 per finished book.",
+    "ogTitle": "Racana — Your English manuscript in. Your finished book out.",
+    "ogDescription": "Professional book interior typesetting for English-language authors. Preview free, then create your print-ready PDF for ₹2,450."
   },
   "LanguageSwitcher": {
     "label": "Language",

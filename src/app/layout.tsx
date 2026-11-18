@@ -22,11 +22,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: {
     default:
-      "Racana — ₹2,450 · Professional Book Interior Typesetting & Cover Design for Indian Authors",
+      "Racana — ₹2,450 · Book Interior Typesetting for English Manuscripts",
     template: "%s — Racana",
   },
   description:
-    "Upload your DOCX or PDF manuscript and Racana turns it into a professionally typeset, print-ready book interior in minutes. Classic & Modern styles, interactive cover studio with classical motifs, EPUB 3 export, and native Devanagari, Tamil & Malayalam rendering. ₹2,450 per finished book with free preview.",
+    "Upload an English DOCX or text-based PDF and Racana turns it into a professionally typeset book interior. Classic & Modern styles, cover studio, and EPUB 3 export. ₹2,450 per finished book with free preview.",
   keywords: [
     "book formatting",
     "book typesetting",
@@ -36,10 +36,7 @@ export const metadata: Metadata = {
     "IngramSpark formatting",
     "Pothi",
     "self publishing India",
-    "Malayalam book typesetting",
-    "Tamil book formatting",
-    "Devanagari typesetting",
-    "Hindi book layout",
+    "English book typesetting",
     "DOCX to PDF book",
     "EPUB conversion India",
     "book cover designer",
@@ -55,9 +52,9 @@ export const metadata: Metadata = {
   openGraph: {
     siteName: "Racana",
     title:
-      "Racana — ₹2,450 · Professional Book Interior Typesetting & Cover Design for Indian Authors",
+      "Racana — ₹2,450 · Book Interior Typesetting for English Manuscripts",
     description:
-      "Upload DOCX → Choose Style → Get a print-ready interior in minutes. Indian-script native rendering, cover studio + EPUB included. Free preview.",
+      "Upload an English manuscript → Choose a style → Preview your book interior. Cover studio and EPUB 3 export included. Free preview.",
     type: "website",
     url: appUrl,
     locale: "en_IN",
@@ -66,7 +63,7 @@ export const metadata: Metadata = {
         url: "/opengraph-image",
         width: 1200,
         height: 630,
-        alt: "Racana — Book interior publisher for Indian authors. Upload your manuscript. Get a finished book.",
+        alt: "Racana — Book interior typesetting for English-language authors.",
       },
     ],
   },
@@ -75,7 +72,7 @@ export const metadata: Metadata = {
     title:
       "Racana — ₹2,450 · Book Interior Typesetting & Cover Design for Indian Authors",
     description:
-      "Free preview. Classic + Modern styles. Devanagari, Tamil & Malayalam supported.",
+      "Free preview. Classic + Modern styles. English manuscript typesetting.",
     images: ["/opengraph-image"],
     creator: "@racana_studio",
   },
@@ -120,25 +117,6 @@ export default async function RootLayout({
       className={`h-full ${playfair.variable} ${jakarta.variable}`}
       suppressHydrationWarning
     >
-      <head>
-        {/* Indic script fonts for the animated multilingual brand logo.
-            Google Fonts serves these with unicode-range subsetting, so the
-            browser only downloads font files for scripts actually rendered
-            on the page — no performance cost until the animation needs them. */}
-        <link
-          rel="preconnect"
-          href="https://fonts.googleapis.com"
-        />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Noto+Serif+Devanagari:wght@400;700&family=Noto+Serif+Malayalam:wght@400;700&family=Noto+Serif+Tamil:wght@400;700&family=Noto+Serif+Bengali:wght@400;700&family=Noto+Serif+Gujarati:wght@400;700&family=Noto+Serif+Kannada:wght@400;700&family=Noto+Serif+Telugu:wght@400;700&family=Noto+Serif+Gurmukhi:wght@400;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
       <body className="min-h-full font-sans antialiased">
         {umamiSrc && umamiWebsiteId && (
           <script
